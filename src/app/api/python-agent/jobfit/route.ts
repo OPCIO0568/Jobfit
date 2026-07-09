@@ -1,0 +1,54 @@
+import { NextResponse } from "next/server";
+
+const DEFAULT_BACKEND_URL = "http://127.0.0.1:8000";
+
+function backendUnavailableResponse() {
+  return NextResponse.json(
+    {
+      error: {
+        code: "PYTHON_BACKEND_UNAVAILABLE",
+        message: "Python backend가 실행 중인지 확인하세요.",
+        action:
+          "backend 폴더에서 python -m uvicorn main:app --reload --port 8000 명령으로 실행한 뒤 다시 시도하세요.",
+      },
+    },
+    { status: 502 },
+  );
+}
+
+export async function POST(request: Request) {
+  const backendUrl =
+    process.env.NEXT_PUBLIC_AGENT_BACKEND_URL?.replace(/\/$/, "") ??
+    DEFAULT_BACKEND_URL;
+
+  let body: unknown;
+
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      {
+        error: {
+          code: "INVALID_JSON",
+          message: "요청 JSON 형식이 올바르지 않습니다.",
+        },
+      },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const response = await fetch(`${backendUrl}/agent/jobfit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const text = await response.text();
+    const data = text ? (JSON.parse(text) as unknown) : null;
+
+    return NextResponse.json(data, { status: response.status });
+  } catch {
+    return backendUnavailableResponse();
+  }
+}
