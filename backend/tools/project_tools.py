@@ -8,6 +8,11 @@ try:
 except ModuleNotFoundError:
     from rag.retriever import retrieve_jobfit_context  # type: ignore[no-redef]
 
+try:
+    from backend.tools.expert_prompts import PROJECT_MENTOR_PROMPT, RAG_RESEARCHER_PROMPT
+except ModuleNotFoundError:
+    from tools.expert_prompts import PROJECT_MENTOR_PROMPT, RAG_RESEARCHER_PROMPT  # type: ignore[no-redef]
+
 
 class SearchJobFitRagInput(BaseModel):
     query: str = Field(description="검색할 직무, 역량, 프로젝트 관련 질문입니다.")
@@ -336,7 +341,10 @@ search_jobfit_rag_tool = StructuredTool.from_function(
     name="search_jobfit_rag_tool",
     func=_search_jobfit_rag,
     args_schema=SearchJobFitRagInput,
-    description="프로젝트 추천, 역량 갭 분석, 면접 준비에 필요한 로컬 JobFit RAG 문서 chunk를 검색할 때 사용한다.",
+    description=(
+        f"{RAG_RESEARCHER_PROMPT}\n\n"
+        "프로젝트 추천, 역량 갭 분석, 면접 준비에 필요한 로컬 JobFit RAG 문서 chunk를 검색할 때 사용한다."
+    ),
 )
 
 recommend_project_tool = StructuredTool.from_function(
@@ -344,6 +352,7 @@ recommend_project_tool = StructuredTool.from_function(
     func=_recommend_project,
     args_schema=RecommendProjectInput,
     description=(
+        f"{PROJECT_MENTOR_PROMPT}\n\n"
         "부족 역량, 목표 직무, 준비 기간, 사용자 수준, RAG 근거를 바탕으로 "
         "입문/중급/고급 추천 프로젝트 3개와 산출물, 축소 버전을 만들 때 사용한다."
     ),

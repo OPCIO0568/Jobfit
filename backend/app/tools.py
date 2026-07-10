@@ -3,6 +3,13 @@ import json
 from langchain_core.tools import tool
 
 from backend.app.rag import retrieve_documents
+from backend.tools.expert_prompts import (
+    GAP_ANALYST_PROMPT,
+    PROJECT_MENTOR_PROMPT,
+    RAG_RESEARCHER_PROMPT,
+    REPORT_EDITOR_PROMPT,
+    ROADMAP_COACH_PROMPT,
+)
 
 
 def _safe_json_loads(value: str) -> dict:
@@ -15,7 +22,10 @@ def _safe_json_loads(value: str) -> dict:
 
 @tool
 def search_jobfit_knowledge(query: str) -> str:
-    """Search local JobFit role and portfolio knowledge documents."""
+    """SW/IT 직무 지식 리서처 Tool.
+
+    로컬 JobFit 직무/포트폴리오 지식 문서를 검색한다.
+    """
     docs = retrieve_documents(query)
     return json.dumps(
         [
@@ -32,7 +42,10 @@ def search_jobfit_knowledge(query: str) -> str:
 
 @tool
 def analyze_gap(input_text: str) -> str:
-    """Analyze job-fit capability gaps from user request and RAG context."""
+    """채용 역량 갭 분석 컨설턴트 Tool.
+
+    사용자 요청과 RAG 문서를 근거로 공고 대비 부족 역량을 분석한다.
+    """
     data = _safe_json_loads(input_text)
     text = f"{data.get('message', '')}\n{data.get('context', '')}".lower()
     gaps: list[dict[str, str]] = []
@@ -68,7 +81,10 @@ def analyze_gap(input_text: str) -> str:
 
 @tool
 def recommend_project(input_text: str) -> str:
-    """Recommend portfolio projects grounded in selected gaps."""
+    """시니어 포트폴리오 멘토 Tool.
+
+    선택된 역량 갭을 증명할 포트폴리오 프로젝트를 추천한다.
+    """
     data = _safe_json_loads(input_text)
     text = f"{data.get('message', '')} {data.get('gaps', '')}".lower()
 
@@ -96,7 +112,10 @@ def recommend_project(input_text: str) -> str:
 
 @tool
 def generate_roadmap(input_text: str) -> str:
-    """Generate a compact roadmap for the selected project and period."""
+    """취업 준비 로드맵 코치 Tool.
+
+    선택된 프로젝트와 준비 기간에 맞춰 산출물 중심 로드맵을 만든다.
+    """
     data = _safe_json_loads(input_text)
     period = str(data.get("period", "4주"))
     weeks = 12 if "12" in period else 8 if "8" in period else 4
@@ -120,3 +139,21 @@ JOBFIT_TOOLS = [
     recommend_project,
     generate_roadmap,
 ]
+
+search_jobfit_knowledge.description = (
+    f"{RAG_RESEARCHER_PROMPT}\n\n"
+    "로컬 JobFit 직무/포트폴리오 지식 문서를 검색한다."
+)
+analyze_gap.description = (
+    f"{GAP_ANALYST_PROMPT}\n\n"
+    "사용자 요청과 RAG 문서를 근거로 공고 대비 부족 역량을 분석한다."
+)
+recommend_project.description = (
+    f"{PROJECT_MENTOR_PROMPT}\n\n"
+    "선택된 역량 갭을 증명할 포트폴리오 프로젝트를 추천한다."
+)
+generate_roadmap.description = (
+    f"{ROADMAP_COACH_PROMPT}\n\n"
+    f"최종 리포트 정리 원칙: {REPORT_EDITOR_PROMPT}\n\n"
+    "선택된 프로젝트와 준비 기간에 맞춰 산출물 중심 로드맵을 만든다."
+)

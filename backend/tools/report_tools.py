@@ -4,6 +4,11 @@ from typing import Any
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+try:
+    from backend.tools.expert_prompts import REPORT_EDITOR_PROMPT
+except ModuleNotFoundError:
+    from tools.expert_prompts import REPORT_EDITOR_PROMPT  # type: ignore[no-redef]
+
 
 class GenerateMarkdownReportInput(BaseModel):
     final_analysis: dict[str, Any] = Field(description="최종 분석 결과 JSON 객체입니다.")
@@ -59,5 +64,8 @@ generate_markdown_report_tool = StructuredTool.from_function(
     name="generate_markdown_report_tool",
     func=_generate_markdown_report,
     args_schema=GenerateMarkdownReportInput,
-    description="최종 분석 JSON을 사용자가 다운로드하거나 제출할 수 있는 Markdown 보고서 문자열로 변환할 때 사용한다.",
+    description=(
+        f"{REPORT_EDITOR_PROMPT}\n\n"
+        "최종 분석 JSON을 사용자가 다운로드하거나 제출할 수 있는 Markdown 보고서 문자열로 변환할 때 사용한다."
+    ),
 )

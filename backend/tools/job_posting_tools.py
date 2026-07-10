@@ -4,6 +4,11 @@ import re
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+try:
+    from backend.tools.expert_prompts import JOB_POSTING_ANALYST_PROMPT
+except ModuleNotFoundError:
+    from tools.expert_prompts import JOB_POSTING_ANALYST_PROMPT  # type: ignore[no-redef]
+
 
 # 공고에서 기술스택 뽑을 때 보는 키워드
 TECH_KEYWORDS = [
@@ -154,6 +159,7 @@ analyze_job_posting_tool = StructuredTool.from_function(
     func=_analyze_job_posting,
     args_schema=AnalyzeJobPostingInput,
     description=(
+        f"{JOB_POSTING_ANALYST_PROMPT}\n\n"
         "채용공고 원문과 회사 인재상을 근거로 담당업무, 필수역량, 우대역량, "
         "인재상 키워드, 기술 키워드를 구조화할 때 사용한다. 공고에 없는 요구사항은 단정하지 않는다."
     ),
