@@ -548,7 +548,7 @@ function recommendedProjectFromPython(
     risks: listOrFallback(project?.risk_notes, ["범위가 커지면 축소 버전부터 완성"]),
     smallerVersion: project?.reduced_scope ?? "핵심 기능 1개와 README부터 완성",
     portfolioOutputs: listOrFallback(project?.required_outputs, ["README"]),
-    reason: `${targetSkills[0]} 역량 보완에 직접 연결됩니다.`,
+    reason: project?.description ?? `${targetSkills[0]} 역량 보완에 직접 연결됩니다.`,
   };
 
   if (index === 0) {

@@ -221,6 +221,9 @@ def project_recommendation_node(state: GraphState) -> PartialGraphState:
                 "target_role": state.get("target_role") or "목표 직무",
                 "preparation_weeks": state.get("preparation_weeks") or 4,
                 "user_level": state.get("current_level") or _infer_level(state),
+                "gap_evidence": gap.get("evidence", []),
+                "user_projects": state.get("user_projects") or "",
+                "preferred_project_type": state.get("preferred_project_type") or "상관없음",
                 "rag_context": state.get("rag_context", []),
             },
         )
