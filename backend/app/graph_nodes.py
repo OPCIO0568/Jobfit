@@ -280,8 +280,12 @@ def clarification_node(state: GraphState) -> PartialGraphState:
     try:
         validation = state.get("validation_result", {})
         missing = validation.get("missing_fields", [])
+        invalid = validation.get("invalid_fields", [])
         warnings = validation.get("warnings", [])
-        question = "추가 정보가 필요합니다. " + ", ".join(missing or ["채용공고와 사용자 경험"]) + " 항목을 보완해 주세요."
+        if invalid:
+            question = "JobFit 분석과 관련된 채용공고, 목표 직무, 프로젝트 경험을 다시 입력해 주세요."
+        else:
+            question = "추가 정보가 필요합니다. " + ", ".join(missing or ["채용공고와 사용자 경험"]) + " 항목을 보완해 주세요."
         return {"final_report": {"message": question, "warnings": warnings}, "next_action": "done"}
     except Exception as exc:
         return _node_error("clarification_node", exc)

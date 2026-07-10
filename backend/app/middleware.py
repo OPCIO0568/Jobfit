@@ -21,11 +21,85 @@ EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 PHONE_RE = re.compile(r"(?:\+82-?)?01[016789]-?\d{3,4}-?\d{4}")
 RESIDENT_ID_RE = re.compile(r"\b\d{6}-?[1-4]\d{6}\b")
 WHITESPACE_RE = re.compile(r"\s+")
+TEXT_TOKEN_RE = re.compile(r"[A-Za-z0-9가-힣+#./]+")
 
 MAX_INPUT_LENGTH = 12_000
 MIN_USER_MESSAGE_LENGTH = 5
 MIN_JOB_POSTING_LENGTH = 80
 MIN_EXPERIENCE_LENGTH = 80
+
+JOBFIT_KEYWORDS = {
+    "채용",
+    "공고",
+    "직무",
+    "담당",
+    "업무",
+    "필수",
+    "우대",
+    "역량",
+    "기술",
+    "스택",
+    "프로젝트",
+    "경험",
+    "자기소개",
+    "포트폴리오",
+    "면접",
+    "학습",
+    "로드맵",
+    "개발",
+    "운영",
+    "설계",
+    "테스트",
+    "협업",
+    "리뷰",
+    "api",
+    "rest",
+    "sql",
+    "python",
+    "java",
+    "fastapi",
+    "spring",
+    "docker",
+    "git",
+    "linux",
+    "backend",
+    "frontend",
+    "responsibility",
+    "responsibilities",
+    "required",
+    "preferred",
+    "develop",
+    "development",
+    "software",
+    "engineer",
+    "role",
+    "skill",
+    "experience",
+    "server",
+    "data",
+    "test",
+    "deploy",
+    "cloud",
+    "security",
+    "communication",
+}
+
+OFF_TOPIC_KEYWORDS = {
+    "날씨",
+    "로또",
+    "주식",
+    "코인",
+    "비트코인",
+    "연애",
+    "운세",
+    "사주",
+    "음식",
+    "요리",
+    "맛집",
+    "여행",
+    "노래",
+    "가사",
+}
 
 
 def sanitize_text(text: str) -> str:
@@ -84,9 +158,15 @@ def validate_jobfit_request(request: JobFitRequest) -> dict[str, Any]:
             missing_fields.append("user_experience")
         warnings.append("사용자 프로젝트 또는 자기소개서 경험이 짧아 역량 분석에 한계가 있습니다.")
 
+    invalid_fields = _invalid_jobfit_fields(sanitized, user_experience)
+    if invalid_fields:
+        missing_fields.extend(field for field in invalid_fields if field not in missing_fields)
+        warnings.append("JobFit 분석과 관련 없는 내용 또는 의미 없는 입력이 포함되어 다시 입력이 필요합니다.")
+
     return {
         "is_valid": not missing_fields,
         "missing_fields": missing_fields,
+        "invalid_fields": invalid_fields,
         "sanitized_request": sanitized,
         "needs_job_posting_detail": needs_job_posting_detail,
         "needs_user_experience_detail": needs_user_experience_detail,
@@ -175,3 +255,51 @@ def _looks_internal_error(message: str) -> bool:
         word in lowered
         for word in ["traceback", "stack", "api key", "apikey", "secret", "token", "openai_api_key"]
     )
+
+
+def _invalid_jobfit_fields(sanitized: dict[str, Any], user_experience: str) -> list[str]:
+    # 이상한 반복문자/무관한 질문이면 기존 clarification 흐름으로 보냄
+    invalid: list[str] = []
+    user_message = str(sanitized.get("user_message") or "")
+    job_posting = str(sanitized.get("job_posting") or "")
+
+    if _looks_like_noise(user_message) or _is_off_topic_message(user_message):
+        invalid.append("user_message")
+
+    if job_posting and _looks_invalid_jobfit_text(job_posting):
+        invalid.append("job_posting")
+
+    if user_experience and _looks_invalid_jobfit_text(user_experience):
+        invalid.append("user_experience")
+
+    return invalid
+
+
+def _looks_invalid_jobfit_text(text: str) -> bool:
+    if _looks_like_noise(text):
+        return True
+    return len(text.strip()) >= 20 and not _has_jobfit_signal(text)
+
+
+def _is_off_topic_message(text: str) -> bool:
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in OFF_TOPIC_KEYWORDS) and not _has_jobfit_signal(text)
+
+
+def _has_jobfit_signal(text: str) -> bool:
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in JOBFIT_KEYWORDS)
+
+
+def _looks_like_noise(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    if len(compact) < 8:
+        return False
+    tokens = TEXT_TOKEN_RE.findall(text)
+    if not tokens:
+        return True
+    unique_chars = set(compact.lower())
+    if len(unique_chars) <= 3:
+        return True
+    most_common_count = max(compact.lower().count(char) for char in unique_chars)
+    return most_common_count / len(compact) >= 0.7
