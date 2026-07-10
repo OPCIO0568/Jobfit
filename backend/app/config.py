@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
     app_env: str = "development"
+    backend_host: str = "127.0.0.1"
+    backend_port: int = 8000
 
 
 @lru_cache

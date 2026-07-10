@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-const DEFAULT_BACKEND_URL = "http://127.0.0.1:8000";
+const DEFAULT_BACKEND_HOST = "127.0.0.1";
+const DEFAULT_BACKEND_PORT = "8000";
 
 function backendUnavailableResponse() {
   return NextResponse.json(
@@ -9,7 +10,7 @@ function backendUnavailableResponse() {
         code: "PYTHON_BACKEND_UNAVAILABLE",
         message: "Python backend가 실행 중인지 확인하세요.",
         action:
-          "backend 폴더에서 python -m uvicorn main:app --reload --port 8000 명령으로 실행한 뒤 다시 시도하세요.",
+          "루트 폴더에서 .\\scripts\\dev.ps1 backend 명령으로 실행한 뒤 다시 시도하세요.",
       },
     },
     { status: 502 },
@@ -17,9 +18,7 @@ function backendUnavailableResponse() {
 }
 
 export async function POST(request: Request) {
-  const backendUrl =
-    process.env.NEXT_PUBLIC_AGENT_BACKEND_URL?.replace(/\/$/, "") ??
-    DEFAULT_BACKEND_URL;
+  const backendUrl = getBackendUrl();
 
   let body: unknown;
 
@@ -51,4 +50,18 @@ export async function POST(request: Request) {
   } catch {
     return backendUnavailableResponse();
   }
+}
+
+function getBackendUrl() {
+  const explicitUrl =
+    process.env.AGENT_BACKEND_URL ??
+    process.env.NEXT_PUBLIC_AGENT_BACKEND_URL;
+
+  if (explicitUrl?.trim()) {
+    return explicitUrl.trim().replace(/\/$/, "");
+  }
+
+  const host = process.env.BACKEND_HOST?.trim() || DEFAULT_BACKEND_HOST;
+  const port = process.env.BACKEND_PORT?.trim() || DEFAULT_BACKEND_PORT;
+  return `http://${host}:${port}`;
 }
