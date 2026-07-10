@@ -474,10 +474,12 @@ function gapAnalysisFromPython(report: PythonAgentReport): GapAnalysis {
       "추가 증명이 필요한 역량",
     ])
       .slice(0, 15)
-      .map((skill) => ({
+      .map((skill, index) => ({
         capability: skill,
         gapLevel: gap.priority.includes(skill) ? "높음" : "중간",
-        reason: firstOrFallback(gap.evidence, "공고 요구사항 대비 근거가 부족합니다."),
+        reason:
+          gap.evidence[index] ??
+          firstOrFallback(gap.evidence, "공고 요구사항 대비 근거가 부족합니다."),
       })),
     studyItems: listOrFallback(gap.study_items, ["부족 역량 학습"]),
     projectProofItems: listOrFallback(gap.project_items, ["프로젝트 산출물로 증명"]),

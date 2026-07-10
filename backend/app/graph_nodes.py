@@ -153,12 +153,15 @@ def gap_analysis_node(state: GraphState) -> PartialGraphState:
         user = state.get("user_profile_analysis", {})
         # 필수역량을 먼저 보고, 우대역량은 그 다음 우선순위로 둠
         required_core = _extract_skill_phrases(_flatten(job.get("required_skills", [])))
+        responsibility_core = _extract_skill_phrases(_flatten(job.get("responsibilities", [])))
         preferred_core = [
             skill
             for skill in _extract_skill_phrases(_flatten(job.get("preferred_skills", [])))
-            if skill not in required_core
+            if skill not in required_core and skill not in responsibility_core
         ]
-        required = _unique(required_core + preferred_core + _flatten(job.get("technical_keywords", [])))
+        required = _dedupe_capabilities(
+            required_core + responsibility_core + preferred_core + _flatten(job.get("technical_keywords", [])),
+        )
         user_text = " ".join(_flatten(user)).lower()
 
         strengths = [skill for skill in required if _has_positive_skill(user_text, skill)]
@@ -166,10 +169,12 @@ def gap_analysis_node(state: GraphState) -> PartialGraphState:
         if not missing:
             missing = ["공고 요구역량을 포트폴리오 산출물로 더 명확히 증명하기"]
         priority = [skill for skill in required_core if skill in missing]
+        priority += [skill for skill in responsibility_core if skill in missing]
         priority += [skill for skill in preferred_core if skill in missing]
 
         study_items = [_study_item(skill) for skill in missing[:5]]
         project_items = [_project_item(skill) for skill in missing[:5]]
+        evidence = _gap_evidence_items(missing[:6], job, user, state.get("rag_context", []))
         gap = {
             "strengths": strengths[:6],
             "missing_skills": missing[:6],
@@ -186,7 +191,7 @@ def gap_analysis_node(state: GraphState) -> PartialGraphState:
                 "입력 경험이 짧으면 보유 역량보다 보완 항목이 더 크게 잡힐 수 있습니다.",
                 "프로젝트 산출물이 없으면 실제 수행 경험으로 보기 어렵습니다.",
             ],
-            "evidence": _flatten(job.get("evidence", []))[:5],
+            "evidence": evidence,
         }
         return {"gap_analysis": gap, "next_action": "project_recommendation"}
     except Exception as exc:
@@ -349,10 +354,9 @@ def _extract_known_skills(text: str) -> list[str]:
 
 
 def _extract_skill_phrases(lines: list[str]) -> list[str]:
+    phrases = [line[:60] for line in lines if "부족" not in line]
     found = _extract_known_skills(" ".join(lines))
-    if found:
-        return found
-    return [line[:40] for line in lines if "부족" not in line][:4]
+    return _unique(phrases + found)[:8]
 
 
 def _has_positive_skill(text: str, skill: str) -> bool:
@@ -380,6 +384,129 @@ def _study_item(skill: str) -> str:
 
 def _project_item(skill: str) -> str:
     return f"{skill}를 README, 테스트/로그, 실행 결과로 증명"
+
+
+def _gap_evidence_items(
+    missing: list[str],
+    job: dict[str, Any],
+    user: dict[str, Any],
+    rag_context: list[str],
+) -> list[str]:
+    # 부족역량마다 다른 근거를 붙이는 부분. 한 줄 근거 반복 방지용.
+    job_lines = _flatten(
+        [
+            job.get("required_skills", []),
+            job.get("preferred_skills", []),
+            job.get("responsibilities", []),
+            job.get("evidence", []),
+        ],
+    )
+    user_lines = _flatten(
+        [
+            user.get("project_experience", []),
+            user.get("self_intro_evidence", []),
+            user.get("collaboration_experience", []),
+            user.get("problem_solving_experience", []),
+            user.get("documentation_experience", []),
+            user.get("operation_experience", []),
+            user.get("confirmed_skills", []),
+        ],
+    )
+    return [_gap_evidence(skill, job_lines, user_lines, rag_context) for skill in missing]
+
+
+def _gap_evidence(skill: str, job_lines: list[str], user_lines: list[str], rag_context: list[str]) -> str:
+    job_line = _best_line(skill, job_lines)
+    user_line = _best_line(skill, user_lines)
+    fallback_user = user_lines[0] if user_lines else "사용자 프로젝트 경험"
+    missing_focus = _missing_focus(skill)
+    rag_line = _best_line(skill, rag_context)
+
+    job_part = f"공고 근거: {_shorten(job_line or skill, 95)}"
+    if user_line:
+        user_part = f"사용자 근거: {_shorten(user_line, 95)}"
+    else:
+        user_part = f"사용자 근거: {_shorten(fallback_user, 70)} 경험은 확인되지만, {missing_focus} 근거는 부족합니다."
+
+    if rag_line:
+        return f"{job_part} / {user_part} / RAG 기준: {_shorten(_strip_source(rag_line), 90)}"
+    return f"{job_part} / {user_part}"
+
+
+def _best_line(skill: str, lines: list[str]) -> str:
+    skill_tokens = _tokens(skill)
+    if not skill_tokens:
+        return ""
+    for line in lines:
+        line_tokens = _tokens(line)
+        if skill_tokens & line_tokens:
+            return line
+    return ""
+
+
+def _tokens(text: str) -> set[str]:
+    return {
+        token.lower()
+        for token in re.findall(r"[A-Za-z0-9+#./]+|[가-힣]{2,}", text)
+        if token.lower()
+        not in {
+            "경험",
+            "근거",
+            "사항",
+            "필수",
+            "우대",
+            "기반",
+            "구현",
+            "활용",
+            "관련",
+            "프로젝트",
+            "사용자",
+        }
+    }
+
+
+def _missing_focus(skill: str) -> str:
+    lower = skill.lower()
+    if any(word in lower for word in ["로그", "운영", "배포", "장애", "monitoring"]):
+        return "배포 환경 로그 확인, 문제 추적, 장애 대응 산출물"
+    if any(word in lower for word in ["git", "협업", "리뷰", "커뮤니케이션", "소통"]):
+        return "Git 브랜치 전략, PR/코드리뷰, 협업 커뮤니케이션 기록"
+    if any(word in lower for word in ["test", "테스트", "검증"]):
+        return "테스트 케이스, 실패 케이스, 검증 결과"
+    if any(word in lower for word in ["sql", "db", "데이터"]):
+        return "데이터 모델링, 쿼리 검증, 성능 확인"
+    if any(word in lower for word in ["api", "rest", "fastapi", "spring"]):
+        return "API 설계 의도, 예외 처리, OpenAPI/테스트 근거"
+    return f"{skill}를 직접 수행했다는 산출물"
+
+
+def _shorten(text: str, limit: int) -> str:
+    clean = " ".join(str(text).split())
+    return clean if len(clean) <= limit else f"{clean[: limit - 1]}…"
+
+
+def _strip_source(text: str) -> str:
+    return re.sub(r"^\[source:[^\]]+\]\s*", "", text).strip()
+
+
+def _dedupe_capabilities(values: list[str]) -> list[str]:
+    # "Git 활용 경험..."과 "Git"처럼 같은 역량이 두 번 보이는 것 정리
+    result: list[str] = []
+    for value in values:
+        clean = value.strip()
+        if clean and not any(_same_capability(clean, existing) for existing in result):
+            result.append(clean)
+    return result
+
+
+def _same_capability(a: str, b: str) -> bool:
+    lower_a = a.lower()
+    lower_b = b.lower()
+    if lower_a in lower_b or lower_b in lower_a:
+        return True
+    tokens_a = _tokens(a)
+    tokens_b = _tokens(b)
+    return bool(tokens_a & tokens_b) and (len(tokens_a) == 1 or len(tokens_b) == 1)
 
 
 def _infer_level(state: GraphState) -> str:

@@ -100,7 +100,12 @@ def _analyze_job_posting(job_posting: str, company_values: str = "") -> str:
 
 def _meaningful_lines(text: str) -> list[str]:
     # 긴 공고를 줄 단위로 쪼개는 부분
-    candidates = re.split(r"[\n\r]+|[•·\-]\s+|(?<=[.!?])\s+", text)
+    normalized = re.sub(
+        r"(담당업무|주요업무|필수사항|필수요건|자격요건|우대사항|우대요건)",
+        r"\n\1: ",
+        text,
+    )
+    candidates = re.split(r"[\n\r]+|[•·\-]\s+|[,;]\s*|(?<=[.!?])\s+", normalized)
     return [line.strip(" -\t") for line in candidates if len(line.strip()) >= 8]
 
 
