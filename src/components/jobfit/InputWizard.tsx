@@ -142,6 +142,7 @@ type PythonAgentReport = {
 };
 
 const STORAGE_KEY = "jobfit:pipeline-result:v1";
+const ANALYSIS_TIMEOUT_MS = 300_000;
 
 const initialForm: WizardForm = {
   targetRole: "",
@@ -678,15 +679,29 @@ function capabilityCategory(
 
 async function postJson<TResponse>(url: string, body: unknown) {
   let response: Response;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    ANALYSIS_TIMEOUT_MS,
+  );
 
   try {
     response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(
+        "분석 응답이 5분 안에 완료되지 않았습니다. 입력을 조금 줄이거나 백엔드 로그를 확인한 뒤 다시 시도해 주세요.",
+      );
+    }
+
     throw new Error(networkJobFitErrorMessage());
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 
   let json: unknown = null;

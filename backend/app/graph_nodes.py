@@ -698,6 +698,8 @@ def _llm_structured(
             model=_normalize_openai_model(settings.openai_model),
             temperature=0.2,
             api_key=settings.openai_api_key,
+            timeout=300,
+            max_retries=1,
         )
         result = model.with_structured_output(schema, method="function_calling").invoke(prompt)
         return _model_dict(result), _llm_meta(state, True, None)
