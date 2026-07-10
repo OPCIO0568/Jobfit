@@ -1,4 +1,6 @@
-from typing import Annotated
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
+from typing import Annotated, Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Body
@@ -41,6 +43,9 @@ except ModuleNotFoundError:
 
 
 router = APIRouter()
+_JOB_EXECUTOR = ThreadPoolExecutor(max_workers=2)
+_JOBS: dict[str, dict[str, Any]] = {}
+_JOBS_LOCK = Lock()
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -66,6 +71,7 @@ def run_jobfit_endpoint(
     session_id = request.session_id or str(uuid4())
 
     try:
+        return _run_jobfit_response(request, session_id)
         state = run_jobfit_agent(_sanitize_request(request, session_id), session_id)
         final_report = state.get("final_report", {})
 
@@ -95,6 +101,36 @@ def run_jobfit_endpoint(
         return safe_error_response("서버 처리 중 오류가 발생했습니다.")
 
 
+@router.post("/agent/jobfit/jobs")
+def start_jobfit_job(
+    request: Annotated[JobFitRequest, Body(description="Cloudflare tunnel용 비동기 JobFit 분석 요청")],
+) -> dict[str, str]:
+    session_id = request.session_id or str(uuid4())
+    job_id = str(uuid4())
+    sanitized_request = _sanitize_request(request, session_id)
+
+    with _JOBS_LOCK:
+        _JOBS[job_id] = {"status": "running", "session_id": session_id}
+
+    _JOB_EXECUTOR.submit(_run_jobfit_job, job_id, sanitized_request, session_id)
+    return {"job_id": job_id, "session_id": session_id, "status": "running"}
+
+
+@router.get("/agent/jobfit/jobs/{job_id}")
+def get_jobfit_job(job_id: str) -> dict[str, Any] | ErrorResponse:
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+
+    if not job:
+        return ErrorResponse(
+            error_code="JOBFIT_JOB_NOT_FOUND",
+            message="분석 작업을 찾을 수 없습니다.",
+            action="분석을 다시 시작해 주세요.",
+        )
+
+    return {"job_id": job_id, **job}
+
+
 @router.get("/agent/workflow-mermaid", response_class=PlainTextResponse)
 def workflow_mermaid() -> str:
     # README/발표용 workflow mermaid 뽑는 API
@@ -102,6 +138,55 @@ def workflow_mermaid() -> str:
         return get_workflow_mermaid()
     except Exception:
         return "graph TD\n  error[workflow mermaid 생성 실패]"
+
+
+def _run_jobfit_job(job_id: str, request: JobFitRequest, session_id: str) -> None:
+    try:
+        response = _run_jobfit_response(request, session_id)
+        is_error = isinstance(response, ErrorResponse)
+        payload = response.model_dump()
+        job = {
+            "status": "failed" if is_error else "done",
+            "session_id": session_id,
+            "error" if is_error else "result": payload,
+        }
+    except Exception:
+        job = {
+            "status": "failed",
+            "session_id": session_id,
+            "error": safe_error_response("분석 처리 중 오류가 발생했습니다.").model_dump(),
+        }
+
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+
+
+def _run_jobfit_response(request: JobFitRequest, session_id: str) -> AgentResponse | ErrorResponse:
+    state = run_jobfit_agent(_sanitize_request(request, session_id), session_id)
+    final_report = state.get("final_report", {})
+
+    if "message" in final_report:
+        return ErrorResponse(
+            error_code="JOBFIT_NEEDS_MORE_INPUT",
+            message=str(final_report["message"]),
+            action="채용공고, 목표 직무, 사용자 프로젝트 경험을 보완한 뒤 다시 실행해 주세요.",
+        )
+
+    return AgentResponse(
+        session_id=session_id,
+        message=_response_message(state),
+        report=_build_final_report(state),
+        used_tools=[
+            "analyze_job_posting_tool",
+            "search_jobfit_rag_tool",
+            "recommend_project_tool",
+            "generate_markdown_report_tool",
+        ],
+        rag_sources=_rag_sources(state.get("rag_context", [])),
+        memory_turns=len(state.get("chat_history", [])),
+        llm_used=bool(state.get("llm_used")),
+        warnings=_warnings(state),
+    )
 
 
 def _sanitize_request(request: JobFitRequest, session_id: str) -> JobFitRequest:

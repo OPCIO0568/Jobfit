@@ -89,6 +89,18 @@ type PythonAgentResponse = {
   error_code?: string;
   action?: string | null;
 };
+type PythonAgentJobStartResponse = {
+  job_id: string;
+  session_id: string;
+  status: "running";
+};
+type PythonAgentJobStatusResponse = {
+  job_id: string;
+  session_id?: string;
+  status?: "running" | "done" | "failed";
+  result?: PythonAgentResponse;
+  error?: PythonAgentResponse;
+};
 
 type PythonAgentReport = {
   summary: string;
@@ -723,6 +735,59 @@ async function postJson<TResponse>(url: string, body: unknown) {
   return json as TResponse;
 }
 
+async function getJson<TResponse>(url: string) {
+  let response: Response;
+
+  try {
+    response = await fetch(url, { cache: "no-store" });
+  } catch {
+    throw new Error(networkJobFitErrorMessage());
+  }
+
+  const json = (await response.json()) as unknown;
+
+  if (!response.ok) {
+    throw new Error(getJobFitClientErrorMessage(json));
+  }
+
+  return json as TResponse;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function waitForPythonAgentJob(
+  jobId: string,
+  onPoll: (message: string) => void,
+) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < ANALYSIS_TIMEOUT_MS) {
+    await sleep(3_000);
+    const status = await getJson<PythonAgentJobStatusResponse>(
+      `/api/python-agent/jobfit/jobs/${encodeURIComponent(jobId)}`,
+    );
+
+    if (status.status === "done" && status.result) {
+      return status.result;
+    }
+
+    if (status.status === "failed") {
+      throw new Error(
+        status.error?.message ?? "Python LangGraph Agent 분석에 실패했습니다.",
+      );
+    }
+
+    const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+    onPoll(`Python LangGraph Agent 분석 중입니다. 약 ${elapsedSeconds}초 경과`);
+  }
+
+  throw new Error(
+    "분석 응답이 5분 안에 완료되지 않았습니다. 백엔드 로그를 확인한 뒤 다시 시도해 주세요.",
+  );
+}
+
 function statusLabel(status: PipelineStepStatus) {
   if (status === "running") {
     return "진행 중";
@@ -972,10 +1037,15 @@ async function startPythonAgentAnalysis() {
     setPipelineStatus("jobPosting", "running");
 
     try {
-      const response = await postJson<PythonAgentResponse>(
-        "/api/python-agent/jobfit",
+      const job = await postJson<PythonAgentJobStartResponse>(
+        "/api/python-agent/jobfit/jobs",
         buildPythonAgentRequest(form),
       );
+      setAnalysisMessage(
+        "Python LangGraph Agent 분석을 시작했습니다. Cloudflare 터널 환경에 맞춰 결과를 조회 중입니다.",
+      );
+
+      const response = await waitForPythonAgentJob(job.job_id, setAnalysisMessage);
       const nextResult = pipelineResultFromPythonAgent(
         response,
         analysisSourceKey,
