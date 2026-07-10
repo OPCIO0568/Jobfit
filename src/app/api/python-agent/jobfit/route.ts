@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const DEFAULT_BACKEND_HOST = "127.0.0.1";
-const DEFAULT_BACKEND_PORT = "8000";
+const DEFAULT_BACKEND_PORT = "8001";
 
 function backendUnavailableResponse() {
   return NextResponse.json(

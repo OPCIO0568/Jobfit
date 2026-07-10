@@ -84,6 +84,8 @@ type PythonAgentResponse = {
   used_tools?: string[];
   rag_sources?: string[];
   memory_turns?: number;
+  llm_used?: boolean;
+  warnings?: string[];
   error_code?: string;
   action?: string | null;
 };
@@ -370,7 +372,7 @@ function pipelineResultFromPythonAgent(
     throw new Error(response.message ?? "Python Agent 분석 결과가 비어 있습니다.");
   }
 
-  const report = finalReportFromPythonAgent(response.report);
+  const report = finalReportFromPythonAgent(response.report, response.warnings);
 
   return {
     sourceKey,
@@ -384,7 +386,10 @@ function pipelineResultFromPythonAgent(
   };
 }
 
-function finalReportFromPythonAgent(report: PythonAgentReport): FinalJobFitReport {
+function finalReportFromPythonAgent(
+  report: PythonAgentReport,
+  warnings: readonly string[] = [],
+): FinalJobFitReport {
   const jobRequirementAnalysis = jobRequirementAnalysisFromPython(report);
   const userCapabilityAnalysis = userCapabilityAnalysisFromPython(report);
   const gapAnalysis = gapAnalysisFromPython(report);
@@ -402,7 +407,7 @@ function finalReportFromPythonAgent(report: PythonAgentReport): FinalJobFitRepor
       "테스트 결과",
       "회고",
     ]),
-    risksAndWarnings: listOrFallback(report.cautions, [
+    risksAndWarnings: listOrFallback([...warnings, ...report.cautions], [
       "AI 분석은 참고용이며 취업 성공을 보장하지 않습니다.",
     ]),
     aiReasoning: [
@@ -424,10 +429,15 @@ function jobRequirementAnalysisFromPython(
     coreRequiredCapabilities: requiredSkills
       .concat(requirements.preferred_skills)
       .slice(0, 20)
-      .map((skill) => ({
+      .map((skill, index) => ({
         name: skill,
         category: capabilityCategory(skill),
-        evidence: firstOrFallback(requirements.evidence, "채용공고 분석 결과 기반"),
+        evidence: evidenceForCapability(
+          skill,
+          requirements.evidence,
+          index,
+          "채용공고 분석 결과 기반",
+        ),
       })),
     talentKeywords: listOrFallback(requirements.talent_keywords, ["협업"]),
     requiredTasks: listOrFallback(requirements.responsibilities, [
@@ -605,6 +615,40 @@ function evidenceList(items: readonly string[], label: string) {
   }));
 }
 
+function evidenceForCapability(
+  capability: string,
+  evidence: readonly string[],
+  index: number,
+  fallback: string,
+) {
+  const matched = evidence.find((item) => hasSharedToken(capability, item));
+  return matched ?? evidence[index % Math.max(evidence.length, 1)] ?? fallback;
+}
+
+function hasSharedToken(left: string, right: string) {
+  const rightTokens = new Set(tokens(right));
+  return tokens(left).some((token) => rightTokens.has(token));
+}
+
+function tokens(value: string) {
+  return value
+    .toLowerCase()
+    .match(/[a-z0-9+#./]+|[가-힣]{2,}/g)
+    ?.filter(
+      (token) =>
+        ![
+          "경험",
+          "근거",
+          "관련",
+          "또는",
+          "활용",
+          "프로젝트",
+          "공고",
+          "역량",
+        ].includes(token),
+    ) ?? [];
+}
+
 function listOrFallback(
   items: readonly string[] | undefined,
   fallback: readonly string[],
@@ -689,6 +733,7 @@ export function InputWizard({ isMockAI }: InputWizardProps) {
   const [error, setError] = useState("");
   const [analysisMessage, setAnalysisMessage] = useState("");
   const [analysisError, setAnalysisError] = useState("");
+  const [externalApiWarnings, setExternalApiWarnings] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<PipelineStatuses>(
     initialPipelineStatuses,
   );
@@ -763,6 +808,7 @@ export function InputWizard({ isMockAI }: InputWizardProps) {
     setError("");
     setAnalysisError("");
     setAnalysisMessage("");
+    setExternalApiWarnings([]);
 
     if (pipelineResult) {
       setPipelineResult(null);
@@ -781,6 +827,7 @@ export function InputWizard({ isMockAI }: InputWizardProps) {
     setError("");
     setAnalysisError("");
     setAnalysisMessage("샘플 데이터가 입력되었습니다.");
+    setExternalApiWarnings([]);
     setStatuses(initialPipelineStatuses);
     setPipelineResult(null);
     setPythonAgentResult(null);
@@ -903,6 +950,7 @@ async function startPythonAgentAnalysis() {
     );
     setAnalysisError("");
     setAnalysisMessage("");
+    setExternalApiWarnings([]);
     setPipelineResult(null);
     setPythonAgentResult(null);
     window.localStorage.removeItem(STORAGE_KEY);
@@ -925,7 +973,17 @@ async function startPythonAgentAnalysis() {
       );
       setPythonAgentResult({ sourceKey: analysisSourceKey, ...response });
       savePipelineResult(nextResult);
-      setAnalysisMessage("Python LangGraph Agent 분석 결과를 생성했습니다.");
+      const warnings = Array.from(new Set(response.warnings ?? []));
+      setExternalApiWarnings(
+        response.llm_used === false && warnings.length === 0
+          ? ["외부 OpenAI API를 사용하지 않고 fallback 결과를 표시했습니다."]
+          : warnings,
+      );
+      setAnalysisMessage(
+        response.llm_used === false
+          ? `주의: ${response.warnings?.[0] ?? "외부 OpenAI API를 사용하지 않고 fallback 결과를 표시했습니다."}`
+          : (response.message ?? "외부 OpenAI API를 사용해 LangGraph 분석 결과를 생성했습니다."),
+      );
     } catch (pythonError) {
       setPipelineStatus("jobPosting", "failed");
       setAnalysisError(
@@ -966,6 +1024,7 @@ async function startPythonAgentAnalysis() {
     );
     setAnalysisError("");
     setAnalysisMessage("");
+    setExternalApiWarnings([]);
     setPipelineResult(null);
     setPythonAgentResult(null);
     window.localStorage.removeItem(STORAGE_KEY);
@@ -1368,6 +1427,20 @@ async function startPythonAgentAnalysis() {
               >
                 재시도
               </button>
+            </StatusNotice>
+          ) : null}
+
+          {externalApiWarnings.length > 0 ? (
+            <StatusNotice
+              variant="warning"
+              title="외부 API 호출 실패"
+              message="일부 LangGraph 분석 단계가 외부 OpenAI API 대신 로컬 fallback으로 처리되었습니다."
+            >
+              <ul className="mt-2 space-y-1 leading-6">
+                {externalApiWarnings.map((warning, index) => (
+                  <li key={`${warning}-${index}`}>- {warning}</li>
+                ))}
+              </ul>
             </StatusNotice>
           ) : null}
 

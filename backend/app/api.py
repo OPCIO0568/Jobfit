@@ -51,6 +51,10 @@ def health() -> HealthResponse:
         app_env=settings.app_env,
         openai_model=settings.openai_model,
         embedding_model=settings.embedding_model,
+        backend_host=settings.backend_host,
+        backend_port=settings.backend_port,
+        jobfit_backend_mock=settings.jobfit_backend_mock,
+        openai_api_key_configured=bool(settings.openai_api_key),
     )
 
 
@@ -74,7 +78,7 @@ def run_jobfit_endpoint(
 
         return AgentResponse(
             session_id=session_id,
-            message=_response_message(),
+            message=_response_message(state),
             report=_build_final_report(state),
             used_tools=[
                 "analyze_job_posting_tool",
@@ -84,6 +88,8 @@ def run_jobfit_endpoint(
             ],
             rag_sources=_rag_sources(state.get("rag_context", [])),
             memory_turns=len(state.get("chat_history", [])),
+            llm_used=bool(state.get("llm_used")),
+            warnings=_warnings(state),
         )
     except Exception:
         return safe_error_response("서버 처리 중 오류가 발생했습니다.")
@@ -117,10 +123,10 @@ def _sanitize_request(request: JobFitRequest, session_id: str) -> JobFitRequest:
     return JobFitRequest(**data)
 
 
-def _response_message() -> str:
-    if get_settings().openai_api_key:
-        return "JobFit Agent 분석을 완료했습니다."
-    return "OPENAI_API_KEY가 없어 로컬 RAG와 규칙 기반 fallback으로 분석했습니다."
+def _response_message(state: dict) -> str:
+    if state.get("llm_used"):
+        return "외부 OpenAI API를 사용해 LangGraph 분석을 완료했습니다."
+    return "외부 OpenAI API를 사용하지 못해 로컬 fallback으로 분석했습니다."
 
 
 def _build_final_report(state: dict) -> FinalReport:
@@ -139,10 +145,13 @@ def _build_final_report(state: dict) -> FinalReport:
                 ["README", "테스트 결과", "실행 로그", "기술 선택 근거"],
             ),
         ),
-        cautions=_strings(
-            report.get(
-                "cautions",
-                ["AI 분석은 참고용이며 취업 성공을 보장하지 않습니다."],
+        cautions=_unique_strings(
+            _warnings(state)
+            + _strings(
+                report.get(
+                    "cautions",
+                    ["AI 분석은 참고용이며 취업 성공을 보장하지 않습니다."],
+                ),
             ),
         ),
     )
@@ -151,11 +160,14 @@ def _build_final_report(state: dict) -> FinalReport:
 def _job_requirements(data: dict) -> JobPostingAnalysis:
     technical = _strings(data.get("technical_keywords"))
     talent = _strings(data.get("talent_keywords"))
+    responsibilities = _strings(data.get("responsibilities"))
+    required_skills = _strings(data.get("required_skills"))
+    preferred_skills = _strings(data.get("preferred_skills"))
     return JobPostingAnalysis(
         role_summary=str(data.get("role_summary") or "채용공고 기반 요구사항 요약"),
-        responsibilities=_strings(data.get("responsibilities")),
-        required_skills=_strings(data.get("required_skills")),
-        preferred_skills=_strings(data.get("preferred_skills")),
+        responsibilities=responsibilities,
+        required_skills=required_skills,
+        preferred_skills=preferred_skills,
         talent_keywords=talent,
         requirement_categories={
             "기술": technical,
@@ -163,7 +175,12 @@ def _job_requirements(data: dict) -> JobPostingAnalysis:
             "문서화": _strings(data.get("requirement_categories", {}).get("문서화")),
             "운영": _strings(data.get("requirement_categories", {}).get("운영")),
         },
-        evidence=_strings(data.get("evidence")),
+        evidence=_unique_strings(
+            _strings(data.get("evidence"))
+            + required_skills
+            + preferred_skills
+            + responsibilities,
+        ),
     )
 
 
@@ -234,6 +251,14 @@ def _rag_sources(chunks: list[str]) -> list[str]:
         for chunk in chunks
         if isinstance(chunk, str) and chunk.startswith("[source:")
     ]
+
+
+def _warnings(state: dict) -> list[str]:
+    return _strings(state.get("llm_warnings"))
+
+
+def _unique_strings(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(value for value in values if value.strip()))
 
 
 def _strings(value: object) -> list[str]:

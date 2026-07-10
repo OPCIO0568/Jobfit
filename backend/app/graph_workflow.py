@@ -118,6 +118,8 @@ def run_jobfit_agent(input_data: JobFitRequest, session_id: str | None = None) -
     state["session_id"] = thread_id
     state["chat_history"] = session_store.get(thread_id)
     state["errors"] = []
+    state["llm_used"] = False
+    state["llm_warnings"] = []
 
     workflow = get_workflow(use_memory=True)
     result = workflow.invoke(state, config={"configurable": {"thread_id": thread_id}})

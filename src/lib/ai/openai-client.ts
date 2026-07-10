@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import type { z } from "zod";
 
-const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+const DEFAULT_OPENAI_MODEL = "gpt-5.5";
 
 export type OpenAIClientErrorCode =
   | "OPENAI_CONFIG_ERROR"

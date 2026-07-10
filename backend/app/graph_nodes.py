@@ -1,17 +1,25 @@
 import json
+import logging
 import re
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 try:
+    from backend.app.config import get_settings
     from backend.app.graph_state import GraphState, PartialGraphState
     from backend.app.middleware import log_agent_event, safe_error_response, sanitize_text, validate_jobfit_request
-    from backend.app.schemas import JobFitRequest
+    from backend.app.schemas import GapAnalysis, JobFitRequest, JobPostingAnalysis, ProjectRecommendation, Roadmap, UserProfileAnalysis
     from backend.tools import analyze_job_posting_tool, generate_markdown_report_tool, recommend_project_tool, search_jobfit_rag_tool
 except ModuleNotFoundError:
+    from app.config import get_settings
     from app.graph_state import GraphState, PartialGraphState
     from app.middleware import log_agent_event, safe_error_response, sanitize_text, validate_jobfit_request
-    from app.schemas import JobFitRequest
+    from app.schemas import GapAnalysis, JobFitRequest, JobPostingAnalysis, ProjectRecommendation, Roadmap, UserProfileAnalysis
     from tools import analyze_job_posting_tool, generate_markdown_report_tool, recommend_project_tool, search_jobfit_rag_tool
+
+
+logger = logging.getLogger(__name__)
 
 
 # 사용자 입력에서 기술스택으로 볼만한 단어들
@@ -44,6 +52,16 @@ KNOWN_SKILLS = [
     "Prometheus",
     "Grafana",
 ]
+
+
+class ProjectRecommendationResult(BaseModel):
+    projects: list[ProjectRecommendation] = Field(description="추천 프로젝트 3개입니다.")
+
+
+class ReportSummaryResult(BaseModel):
+    summary: str = Field(description="전체 분석 결과 요약입니다.")
+    portfolio_checklist: list[str] = Field(description="포트폴리오에 남길 산출물 체크리스트입니다.")
+    cautions: list[str] = Field(description="AI 분석 한계와 주의사항입니다.")
 
 
 def input_validation_node(state: GraphState) -> PartialGraphState:
@@ -84,7 +102,27 @@ def job_posting_analysis_node(state: GraphState) -> PartialGraphState:
                 "company_values": state.get("company_values") or "",
             },
         )
-        return {"job_posting_analysis": _json_loads(output), "next_action": "user_profile_analysis"}
+        fallback = _json_loads(output)
+        llm_result, llm_meta = _llm_structured(
+            state,
+            JobPostingAnalysis,
+            _llm_prompt(
+                "채용공고 분석",
+                "채용공고와 인재상에서 확인되는 담당업무, 필수/우대 역량, 인재상 키워드, 판단 근거를 뽑아라.",
+                {
+                    "job_posting": state.get("job_posting") or "",
+                    "company_values": state.get("company_values") or "",
+                    "tool_draft": fallback,
+                },
+            ),
+            fallback,
+            "채용공고 분석",
+        )
+        analysis = {**fallback, **llm_result}
+        analysis["technical_keywords"] = fallback.get("technical_keywords") or _flatten(
+            analysis.get("requirement_categories", {}).get("기술", []),
+        )
+        return {"job_posting_analysis": analysis, "next_action": "user_profile_analysis", **llm_meta}
     except Exception as exc:
         return _node_error("job_posting_analysis_node", exc)
 
@@ -121,7 +159,24 @@ def user_profile_analysis_node(state: GraphState) -> PartialGraphState:
             },
             "weak_evidence": _weak_evidence(combined),
         }
-        return {"user_profile_analysis": analysis, "next_action": "rag_retrieval"}
+        llm_result, llm_meta = _llm_structured(
+            state,
+            UserProfileAnalysis,
+            _llm_prompt(
+                "사용자 역량 분석",
+                "사용자가 실제 입력한 기술스택, 프로젝트 경험, 자기소개서에서 확인된 역량과 근거가 약한 역량을 구분해라.",
+                {
+                    "user_skills": state.get("user_skills") or [],
+                    "user_projects": state.get("user_projects") or "",
+                    "self_intro": state.get("self_intro") or "",
+                    "chat_history": state.get("chat_history", []),
+                    "tool_draft": analysis,
+                },
+            ),
+            analysis,
+            "사용자 역량 분석",
+        )
+        return {"user_profile_analysis": {**analysis, **llm_result}, "next_action": "rag_retrieval", **llm_meta}
     except Exception as exc:
         return _node_error("user_profile_analysis_node", exc)
 
@@ -193,7 +248,24 @@ def gap_analysis_node(state: GraphState) -> PartialGraphState:
             ],
             "evidence": evidence,
         }
-        return {"gap_analysis": gap, "next_action": "project_recommendation"}
+        llm_result, llm_meta = _llm_structured(
+            state,
+            GapAnalysis,
+            _llm_prompt(
+                "역량 갭 분석",
+                "공고 요구역량과 사용자 경험을 비교해 부족 역량, 학습 항목, 프로젝트로 증명할 항목, 서로 다른 판단 근거를 작성해라.",
+                {
+                    "job_posting_analysis": job,
+                    "user_profile_analysis": user,
+                    "rag_context": state.get("rag_context", []),
+                    "tool_draft": gap,
+                    "rule": "evidence는 같은 문장을 반복하지 말고 공고 근거, 사용자 입력 근거, RAG 기준을 섞어 최소 4개 작성한다.",
+                },
+            ),
+            gap,
+            "역량 갭 분석",
+        )
+        return {"gap_analysis": llm_result, "next_action": "project_recommendation", **llm_meta}
     except Exception as exc:
         return _node_error("gap_analysis_node", exc)
 
@@ -228,7 +300,28 @@ def project_recommendation_node(state: GraphState) -> PartialGraphState:
             },
         )
         data = _json_loads(output)
-        return {"project_recommendations": data.get("projects", []), "next_action": "roadmap_generation"}
+        llm_result, llm_meta = _llm_structured(
+            state,
+            ProjectRecommendationResult,
+            _llm_prompt(
+                "프로젝트 추천",
+                "부족 역량, 목표 직무, 사용자 기존 경험, RAG 근거를 연결해 뜬구름 잡는 프로젝트가 아닌 수행 가능한 프로젝트 3개를 추천해라.",
+                {
+                    "missing_skills": gap.get("missing_skills", []),
+                    "target_role": state.get("target_role") or "목표 직무",
+                    "preparation_weeks": state.get("preparation_weeks") or 4,
+                    "user_level": state.get("current_level") or _infer_level(state),
+                    "user_projects": state.get("user_projects") or "",
+                    "preferred_project_type": state.get("preferred_project_type") or "상관없음",
+                    "gap_evidence": gap.get("evidence", []),
+                    "rag_context": state.get("rag_context", []),
+                    "tool_draft": data,
+                },
+            ),
+            data,
+            "프로젝트 추천",
+        )
+        return {"project_recommendations": llm_result.get("projects", []), "next_action": "roadmap_generation", **llm_meta}
     except Exception as exc:
         return _node_error("project_recommendation_node", exc)
 
@@ -241,7 +334,24 @@ def roadmap_generation_node(state: GraphState) -> PartialGraphState:
         title = project.get("title", "추천 프로젝트")
         study_items = _flatten(state.get("gap_analysis", {}).get("study_items", []))[:4]
         items = [_roadmap_week(week, weeks, title, study_items, project) for week in range(1, weeks + 1)]
-        return {"roadmap": {"total_weeks": weeks, "items": items}, "next_action": "final_report"}
+        fallback = {"total_weeks": weeks, "items": items}
+        llm_result, llm_meta = _llm_structured(
+            state,
+            Roadmap,
+            _llm_prompt(
+                "학습 로드맵 생성",
+                "선택된 준비 기간만큼만 주차별 학습, 실습, 프로젝트 작업, 산출물, 완료 기준을 연결해라.",
+                {
+                    "total_weeks": weeks,
+                    "selected_project": project,
+                    "gap_analysis": state.get("gap_analysis", {}),
+                    "tool_draft": fallback,
+                },
+            ),
+            fallback,
+            "학습 로드맵 생성",
+        )
+        return {"roadmap": llm_result, "next_action": "final_report", **llm_meta}
     except Exception as exc:
         return _node_error("roadmap_generation_node", exc)
 
@@ -269,8 +379,27 @@ def final_report_node(state: GraphState) -> PartialGraphState:
                 "사용자가 실제 수행하지 않은 경험은 보유 역량으로 표현하지 않았습니다.",
             ],
         }
+        llm_result, llm_meta = _llm_structured(
+            state,
+            ReportSummaryResult,
+            _llm_prompt(
+                "최종 리포트 요약",
+                "분석 결과를 발표/포트폴리오용으로 요약하고, 반드시 남겨야 할 산출물과 주의사항을 정리해라.",
+                report,
+            ),
+            {
+                "summary": report["summary"],
+                "portfolio_checklist": report["portfolio_checklist"],
+                "cautions": report["cautions"],
+            },
+            "최종 리포트 요약",
+        )
+        warnings = llm_meta.get("llm_warnings", state.get("llm_warnings", []))
+        report["summary"] = llm_result.get("summary", report["summary"])
+        report["portfolio_checklist"] = llm_result.get("portfolio_checklist", report["portfolio_checklist"])
+        report["cautions"] = _unique([*warnings, *llm_result.get("cautions", report["cautions"])])
         markdown = generate_markdown_report_tool.invoke({"final_analysis": report})
-        return {"final_report": {"json": report, "markdown": markdown}, "next_action": "done"}
+        return {"final_report": {"json": report, "markdown": markdown}, "next_action": "done", **llm_meta}
     except Exception as exc:
         return _node_error("final_report_node", exc)
 
@@ -537,6 +666,94 @@ def _flatten(value: Any) -> list[str]:
     if isinstance(value, dict):
         return [item for entry in value.values() for item in _flatten(entry)]
     return []
+
+
+def _llm_structured(
+    state: GraphState,
+    schema: type[BaseModel],
+    prompt: str,
+    fallback: dict[str, Any],
+    label: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    settings = get_settings()
+
+    if settings.jobfit_backend_mock:
+        return fallback, _llm_meta(
+            state,
+            False,
+            "JOBFIT_BACKEND_MOCK=true 상태라 외부 OpenAI API를 사용하지 않고 로컬 fallback으로 분석했습니다.",
+        )
+
+    if not settings.openai_api_key:
+        return fallback, _llm_meta(
+            state,
+            False,
+            "OPENAI_API_KEY가 없어 외부 OpenAI API를 사용하지 않고 로컬 fallback으로 분석했습니다.",
+        )
+
+    try:
+        from langchain_openai import ChatOpenAI
+
+        model = ChatOpenAI(
+            model=_normalize_openai_model(settings.openai_model),
+            temperature=0.2,
+            api_key=settings.openai_api_key,
+        )
+        result = model.with_structured_output(schema, method="function_calling").invoke(prompt)
+        return _model_dict(result), _llm_meta(state, True, None)
+    except Exception as exc:
+        error_type = exc.__class__.__name__
+        logger.warning("%s 단계에서 OpenAI 호출 실패: %s", label, error_type)
+        return fallback, _llm_meta(
+            state,
+            False,
+            f"{label} 단계에서 OpenAI API 호출에 실패했습니다({error_type}). API 키, 모델명, 네트워크 상태를 확인해 주세요.",
+        )
+
+
+def _llm_prompt(title: str, task: str, payload: Any) -> str:
+    return f"""너는 JobFit Agent의 {title} 전문가다.
+
+작업:
+{task}
+
+공통 원칙:
+- 반드시 한국어로 작성한다.
+- 취업 성공을 보장하지 않는다.
+- 공고 원문에 없는 요구사항을 단정하지 않는다.
+- 사용자가 실제 수행하지 않은 경험을 이미 한 것처럼 쓰지 않는다.
+- 이미 보유한 역량과 앞으로 준비할 역량을 구분한다.
+- 판단 근거는 서로 다른 공고/사용자/RAG 근거를 사용해 반복을 줄인다.
+- 모르면 추정하지 말고 근거가 부족하다고 쓴다.
+
+입력 JSON:
+{json.dumps(payload, ensure_ascii=False, indent=2)}
+"""
+
+
+def _normalize_openai_model(model: str | None) -> str:
+    value = (model or "").strip()
+    if not value:
+        return "gpt-5.5"
+    return value
+
+
+def _model_dict(result: Any) -> dict[str, Any]:
+    if isinstance(result, BaseModel):
+        return result.model_dump()
+    if isinstance(result, dict):
+        return result
+    return {}
+
+
+def _llm_meta(state: GraphState, used: bool, warning: str | None) -> dict[str, Any]:
+    warnings = list(state.get("llm_warnings", []))
+    if warning and warning not in warnings:
+        warnings.append(warning)
+    return {
+        "llm_used": bool(state.get("llm_used")) or used,
+        "llm_warnings": warnings,
+    }
 
 
 def _node_error(node_name: str, exc: Exception) -> PartialGraphState:

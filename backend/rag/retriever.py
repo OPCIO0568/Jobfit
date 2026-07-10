@@ -146,7 +146,7 @@ def _get_store() -> RetrieverStore:
 
 def _build_embedder() -> EmbeddingProvider:
     settings = get_settings()
-    if not settings.openai_api_key:
+    if settings.jobfit_backend_mock or not settings.openai_api_key:
         return HashEmbeddingProvider()
 
     try:

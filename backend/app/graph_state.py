@@ -43,6 +43,8 @@ class GraphState(TypedDict, total=False):
     final_report: dict[str, Any]
     next_action: NextAction
     errors: list[str]
+    llm_used: bool
+    llm_warnings: list[str]
 
 
 PartialGraphState = dict[str, Any]

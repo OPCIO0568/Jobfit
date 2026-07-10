@@ -20,9 +20,9 @@ if (Test-Path $EnvPath) {
     }
 }
 
-if (-not $env:FRONTEND_PORT) { $env:FRONTEND_PORT = "3000" }
+if (-not $env:FRONTEND_PORT) { $env:FRONTEND_PORT = "3001" }
 if (-not $env:BACKEND_HOST) { $env:BACKEND_HOST = "127.0.0.1" }
-if (-not $env:BACKEND_PORT) { $env:BACKEND_PORT = "8000" }
+if (-not $env:BACKEND_PORT) { $env:BACKEND_PORT = "8001" }
 
 if ($Target -eq "backend") {
     Push-Location (Join-Path $Root "backend")

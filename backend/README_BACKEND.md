@@ -75,12 +75,15 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 
 ```env
 OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-5.5
 EMBEDDING_MODEL=text-embedding-3-small
 APP_ENV=development
+BACKEND_HOST=127.0.0.1
+BACKEND_PORT=8001
+JOBFIT_BACKEND_MOCK=false
 ```
 
-API Key는 코드에 하드코딩하지 않습니다. API Key가 없어도 fallback 로직으로 발표용 데모는 실행할 수 있습니다.
+API Key는 코드에 하드코딩하지 않습니다. API Key가 없거나 `JOBFIT_BACKEND_MOCK=true`이면 fallback으로 실행되지만, 응답에 외부 API 미사용 경고가 포함됩니다.
 
 ## FastAPI 실행
 
@@ -88,19 +91,19 @@ API Key는 코드에 하드코딩하지 않습니다. API Key가 없어도 fallb
 cd C:\Ucode\11_AIboot_FINAL
 .\.venv\Scripts\Activate.ps1
 cd backend
-python -m uvicorn main:app --reload --port 8000
+python -m uvicorn main:app --reload --port 8001
 ```
 
 확인:
 
 ```powershell
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8001/health
 ```
 
 OpenAPI 문서:
 
 ```text
-http://127.0.0.1:8000/docs
+http://127.0.0.1:8001/docs
 ```
 
 ## 주요 API
@@ -146,7 +149,7 @@ Workflow 원본:
 API로도 확인할 수 있습니다.
 
 ```powershell
-curl http://127.0.0.1:8000/agent/workflow-mermaid
+curl http://127.0.0.1:8001/agent/workflow-mermaid
 ```
 
 핵심 흐름:

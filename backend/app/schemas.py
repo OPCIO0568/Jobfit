@@ -8,6 +8,10 @@ class HealthResponse(BaseModel):
     app_env: str = Field(description="Current application environment")
     openai_model: str = Field(description="Configured chat model name")
     embedding_model: str = Field(description="Configured embedding model name")
+    backend_host: str = Field(description="Configured backend host")
+    backend_port: int = Field(description="Configured backend port")
+    jobfit_backend_mock: bool = Field(description="Whether backend mock mode is enabled")
+    openai_api_key_configured: bool = Field(description="Whether OpenAI API key is configured")
 
 
 class JobFitRequest(BaseModel):
@@ -138,6 +142,8 @@ class AgentResponse(BaseModel):
     used_tools: list[str] = Field(description="Agent가 실행한 Tool 이름 목록입니다.")
     rag_sources: list[str] = Field(description="RAG 검색에 사용된 문서 출처 목록입니다.")
     memory_turns: int = Field(description="현재 세션에 저장된 대화 턴 수입니다.")
+    llm_used: bool = Field(default=False, description="외부 OpenAI LLM API를 사용했는지 여부입니다.")
+    warnings: list[str] = Field(default_factory=list, description="외부 API 미사용 또는 fallback 경고입니다.")
 
 
 class ErrorResponse(BaseModel):

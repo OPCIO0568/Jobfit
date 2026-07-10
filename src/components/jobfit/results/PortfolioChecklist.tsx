@@ -7,6 +7,8 @@ export function PortfolioChecklist({
   outputs,
   warnings,
 }: PortfolioChecklistProps) {
+  const uniqueWarnings = Array.from(new Set(warnings));
+
   return (
     <section className="rounded-md border border-slate-200 bg-white p-4">
       <h3 className="text-lg font-bold text-slate-950">
@@ -26,8 +28,8 @@ export function PortfolioChecklist({
           AI 분석 한계와 주의사항
         </summary>
         <ul className="mt-3 space-y-2 text-sm leading-6 text-amber-900">
-          {warnings.map((warning) => (
-            <li key={warning}>- {warning}</li>
+          {uniqueWarnings.map((warning, index) => (
+            <li key={`${warning}-${index}`}>- {warning}</li>
           ))}
           <li>- 이 결과는 입력된 정보 기반의 참고 자료이며 취업 성공을 보장하지 않습니다.</li>
           <li>- 사용자가 실제 수행하지 않은 경험을 이미 수행한 것처럼 표현하지 마세요.</li>
