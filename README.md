@@ -242,6 +242,7 @@ backend/
       it_infra_skills.md
       portfolio_checklist.md
       project_templates.md
+      sw_it_role_competency_map.md
 
   docs/
     workflow.mmd                  Mermaid workflow 원본
@@ -552,6 +553,7 @@ python cli_demo.py
 | `project_templates.md` | 프로젝트 설계 템플릿 |
 | `portfolio_checklist.md` | 포트폴리오 산출물 체크리스트 |
 | `interview_evaluation_criteria.md` | 면접 평가 기준 |
+| `sw_it_role_competency_map.md` | SW/IT 17개 직무별 필수 역량과 추천 CS 지식 |
 
 ### 동작 방식
 
