@@ -108,15 +108,15 @@ flowchart LR
 
     ui --> proxy[Next.js API Proxy<br/>/api/python-agent/jobfit]
     proxy --> api[FastAPI Backend<br/>/agent/jobfit]
-    cli --> graph[LangGraph StateGraph]
+    cli --> state_graph[LangGraph StateGraph]
     docs --> api
 
     api --> guard[Middleware / Guardrail]
-    guard --> graph
+    guard --> state_graph
 
-    graph --> tools[LangChain Tools]
-    graph --> rag[RAG<br/>Markdown docs + Chroma]
-    graph --> memory[Memory<br/>session_id + MemorySaver]
+    state_graph --> tools[LangChain Tools]
+    state_graph --> rag[RAG<br/>Markdown docs + Chroma]
+    state_graph --> memory[Memory<br/>session_id + MemorySaver]
 
     tools --> response[AgentResponse / FinalReport]
     rag --> response
