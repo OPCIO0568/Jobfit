@@ -25,9 +25,10 @@ def _generate_markdown_report(final_analysis: dict[str, Any]) -> str:
             sections.append(f"## {_label(key)}")
             sections.append(_to_markdown(value))
 
-        sections.append("## AI 분석 한계")
-        sections.append("- 이 리포트는 입력 정보와 로컬 RAG 문서를 바탕으로 한 참고 자료입니다.")
-        sections.append("- 취업 성공을 보장하지 않으며, 공고 원문에 없는 요구사항은 단정하지 않습니다.")
+        sections.append("## AI 분석 한계와 주의사항")
+        sections.append("- 입력한 공고와 경험을 기준으로 한 참고 자료이며 합격을 보장하지 않습니다.")
+        sections.append("- 최종 지원 전 최신 공고와 본인의 실제 수행 경험으로 다시 확인하세요.")
+        sections.append("- 포트폴리오/README에는 실행 근거를 남기고, API Key·비밀번호 같은 민감정보는 노출하지 마세요.")
         return "\n\n".join(sections).strip()
     except Exception as exc:
         return f"# JobFit Agent 분석 리포트\n\n보고서 생성 실패: {exc.__class__.__name__}"

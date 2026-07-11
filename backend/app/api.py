@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body
 from fastapi.responses import PlainTextResponse
 
 try:
+    from backend.app.cautions import user_facing_cautions
     from backend.app.config import get_settings
     from backend.app.graph_workflow import get_workflow_mermaid, run_jobfit_agent
     from backend.app.middleware import safe_error_response, sanitize_text
@@ -24,6 +25,7 @@ try:
         UserProfileAnalysis,
     )
 except ModuleNotFoundError:
+    from app.cautions import user_facing_cautions
     from app.config import get_settings
     from app.graph_workflow import get_workflow_mermaid, run_jobfit_agent
     from app.middleware import safe_error_response, sanitize_text
@@ -67,36 +69,11 @@ def health() -> HealthResponse:
 def run_jobfit_endpoint(
     request: Annotated[JobFitRequest, Body(description="JobFit Agent 분석 요청")],
 ) -> AgentResponse | ErrorResponse:
-    # FastAPI에서 LangGraph Agent 실행하는 메인 API
+    # LangGraph Agent 실행 API입니다.
     session_id = request.session_id or str(uuid4())
 
     try:
         return _run_jobfit_response(request, session_id)
-        state = run_jobfit_agent(_sanitize_request(request, session_id), session_id)
-        final_report = state.get("final_report", {})
-
-        if "message" in final_report:
-            return ErrorResponse(
-                error_code="JOBFIT_NEEDS_MORE_INPUT",
-                message=str(final_report["message"]),
-                action="채용공고, 목표 직무, 사용자 프로젝트 경험을 보완한 뒤 다시 실행해 주세요.",
-            )
-
-        return AgentResponse(
-            session_id=session_id,
-            message=_response_message(state),
-            report=_build_final_report(state),
-            used_tools=[
-                "analyze_job_posting_tool",
-                "search_jobfit_rag_tool",
-                "recommend_project_tool",
-                "generate_markdown_report_tool",
-            ],
-            rag_sources=_rag_sources(state.get("rag_context", [])),
-            memory_turns=len(state.get("chat_history", [])),
-            llm_used=bool(state.get("llm_used")),
-            warnings=_warnings(state),
-        )
     except Exception:
         return safe_error_response("서버 처리 중 오류가 발생했습니다.")
 
@@ -133,7 +110,7 @@ def get_jobfit_job(job_id: str) -> dict[str, Any] | ErrorResponse:
 
 @router.get("/agent/workflow-mermaid", response_class=PlainTextResponse)
 def workflow_mermaid() -> str:
-    # README/발표용 workflow mermaid 뽑는 API
+    # Workflow Mermaid를 반환합니다.
     try:
         return get_workflow_mermaid()
     except Exception:
@@ -162,6 +139,7 @@ def _run_jobfit_job(job_id: str, request: JobFitRequest, session_id: str) -> Non
 
 
 def _run_jobfit_response(request: JobFitRequest, session_id: str) -> AgentResponse | ErrorResponse:
+    # LangGraph 실행 결과를 API 응답으로 바꿉니다.
     state = run_jobfit_agent(_sanitize_request(request, session_id), session_id)
     final_report = state.get("final_report", {})
 
@@ -190,7 +168,7 @@ def _run_jobfit_response(request: JobFitRequest, session_id: str) -> AgentRespon
 
 
 def _sanitize_request(request: JobFitRequest, session_id: str) -> JobFitRequest:
-    # Agent로 넘기기 전에 입력값 한번 정리
+    # Agent 입력값을 정리합니다.
     data = request.model_dump()
     for field in [
         "user_message",
@@ -215,7 +193,7 @@ def _response_message(state: dict) -> str:
 
 
 def _build_final_report(state: dict) -> FinalReport:
-    # graph state를 FastAPI 응답 모델에 맞게 바꾸는 부분
+    # Graph state를 응답 모델로 바꿉니다.
     report = state.get("final_report", {}).get("json", {})
     return FinalReport(
         summary=str(report.get("summary") or "JobFit 분석 결과입니다."),
@@ -230,15 +208,7 @@ def _build_final_report(state: dict) -> FinalReport:
                 ["README", "테스트 결과", "실행 로그", "기술 선택 근거"],
             ),
         ),
-        cautions=_unique_strings(
-            _warnings(state)
-            + _strings(
-                report.get(
-                    "cautions",
-                    ["AI 분석은 참고용이며 취업 성공을 보장하지 않습니다."],
-                ),
-            ),
-        ),
+        cautions=user_facing_cautions(),
     )
 
 

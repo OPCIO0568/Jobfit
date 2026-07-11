@@ -16,7 +16,6 @@ import {
   getJobFitClientErrorMessage,
   networkJobFitErrorMessage,
 } from "@/lib/errors/jobfit-errors";
-import { renderFinalReportMarkdown } from "@/lib/report/markdown";
 import type {
   CurrentLevel,
   FinalJobFitReport,
@@ -153,7 +152,8 @@ type PythonAgentReport = {
   cautions: string[];
 };
 
-const STORAGE_KEY = "jobfit:pipeline-result:v1";
+const STORAGE_KEY = "jobfit:pipeline-result:v2";
+const LEGACY_STORAGE_KEYS = ["jobfit:pipeline-result:v1"];
 const ANALYSIS_TIMEOUT_MS = 300_000;
 
 const initialForm: WizardForm = {
@@ -205,14 +205,19 @@ const pipelineSteps = [
   { id: "finalReport", label: "최종 리포트 생성 중" },
 ] as const satisfies readonly { id: PipelineStepId; label: string }[];
 
-const initialPipelineStatuses: PipelineStatuses = {
-  jobPosting: "idle",
-  userProfile: "idle",
-  gap: "idle",
-  projects: "idle",
-  roadmap: "idle",
-  finalReport: "idle",
-};
+// 모든 분석 단계의 상태를 한 번에 만듭니다.
+function createPipelineStatuses(
+  status: PipelineStepStatus | ((stepId: PipelineStepId) => PipelineStepStatus),
+): PipelineStatuses {
+  return Object.fromEntries(
+    pipelineSteps.map((step) => [
+      step.id,
+      typeof status === "function" ? status(step.id) : status,
+    ]),
+  ) as PipelineStatuses;
+}
+
+const initialPipelineStatuses = createPipelineStatuses("idle");
 
 const fieldLabels: Record<keyof WizardForm, string> = {
   targetRole: "목표 직무",
@@ -353,7 +358,7 @@ function buildUserProfileRequest(form: WizardForm) {
 }
 
 function buildPythonAgentRequest(form: WizardForm) {
-  // Python LangGraph backend로 보낼 입력값 만드는 부분
+  // LangGraph 요청값을 만듭니다.
   return {
     user_message: `목표 직무 ${form.targetRole}에 맞춰 역량 갭, 프로젝트 추천, 로드맵을 생성해줘`,
     job_posting: limitText(form.rawPosting, 20_000),
@@ -387,6 +392,7 @@ function pipelineResultFromPythonAgent(
 
   const report = finalReportFromPythonAgent(response.report, response.warnings);
 
+  // LangGraph 결과는 HITL 검토 전 상태로 보관합니다.
   return {
     sourceKey,
     jobRequirementAnalysis: report.jobRequirementAnalysis,
@@ -394,8 +400,8 @@ function pipelineResultFromPythonAgent(
     gapAnalysis: report.gapAnalysis,
     projectRecommendation: report.projectRecommendation,
     learningRoadmap: report.learningRoadmap,
-    finalReport: report,
-    markdown: renderFinalReportMarkdown(report),
+    finalReport: null,
+    markdown: "",
   };
 }
 
@@ -807,7 +813,8 @@ function statusLabel(status: PipelineStepStatus) {
 export function InputWizard({ isMockAI }: InputWizardProps) {
   const [form, setForm] = useState(initialForm);
   const [stepIndex, setStepIndex] = useState(0);
-  const [usePythonAgent, setUsePythonAgent] = useState(false);
+  // 기본 분석 경로는 Python LangGraph Agent입니다.
+  const [usePythonAgent, setUsePythonAgent] = useState(true);
   const [pythonAgentResult, setPythonAgentResult] =
     useState<PythonAgentResponse | null>(null);
   const [error, setError] = useState("");
@@ -828,6 +835,7 @@ export function InputWizard({ isMockAI }: InputWizardProps) {
   const currentFormKey = useMemo(() => formKey(form), [form]);
   const currentPipelineResult =
     pipelineResult?.sourceKey === currentFormKey ? pipelineResult : null;
+  const hasAnalysisResult = Boolean(currentPipelineResult);
   const finalizedResult = currentPipelineResult?.finalReport
     ? {
         jobRequirementAnalysis: currentPipelineResult.jobRequirementAnalysis,
@@ -853,6 +861,8 @@ export function InputWizard({ isMockAI }: InputWizardProps) {
   );
 
   useEffect(() => {
+    LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+
     const savedResult = window.localStorage.getItem(STORAGE_KEY);
 
     if (!savedResult) {
@@ -883,17 +893,40 @@ export function InputWizard({ isMockAI }: InputWizardProps) {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextResult));
   }
 
+  // 저장된 분석 결과를 지웁니다.
+  function clearSavedPipelineResult() {
+    setPipelineResult(null);
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
+
+  // 분석 산출물을 초기화합니다.
+  function clearAnalysisOutputs() {
+    clearSavedPipelineResult();
+    setPythonAgentResult(null);
+  }
+
+  // 화면 피드백 메시지를 정리합니다.
+  function resetAnalysisFeedback(message = "") {
+    setAnalysisError("");
+    setAnalysisMessage(message);
+    setExternalApiWarnings([]);
+  }
+
+  // 새 분석 실행 전 상태를 준비합니다.
+  function prepareAnalysisRun() {
+    setStatuses(createPipelineStatuses("pending"));
+    resetAnalysisFeedback();
+    clearAnalysisOutputs();
+  }
+
   function updateField(field: keyof WizardForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
     setError("");
-    setAnalysisError("");
-    setAnalysisMessage("");
-    setExternalApiWarnings([]);
+    resetAnalysisFeedback();
 
     if (pipelineResult) {
-      setPipelineResult(null);
+      clearSavedPipelineResult();
       setStatuses(initialPipelineStatuses);
-      window.localStorage.removeItem(STORAGE_KEY);
     }
 
     if (pythonAgentResult) {
@@ -905,13 +938,9 @@ export function InputWizard({ isMockAI }: InputWizardProps) {
     setForm(demoForm);
     setStepIndex(0);
     setError("");
-    setAnalysisError("");
-    setAnalysisMessage("샘플 데이터가 입력되었습니다.");
-    setExternalApiWarnings([]);
+    resetAnalysisFeedback("샘플 데이터가 입력되었습니다.");
     setStatuses(initialPipelineStatuses);
-    setPipelineResult(null);
-    setPythonAgentResult(null);
-    window.localStorage.removeItem(STORAGE_KEY);
+    clearAnalysisOutputs();
   }
 
   function goNext() {
@@ -1019,21 +1048,11 @@ export function InputWizard({ isMockAI }: InputWizardProps) {
     }
   }
 
-async function startPythonAgentAnalysis() {
-    // Python Agent 옵션 체크했을 때 실행되는 분석 흐름
+  async function startPythonAgentAnalysis() {
+    // LangGraph 분석 흐름입니다.
     const analysisSourceKey = formKey(form);
 
-    setStatuses(
-      Object.fromEntries(
-        pipelineSteps.map((step) => [step.id, "pending"]),
-      ) as PipelineStatuses,
-    );
-    setAnalysisError("");
-    setAnalysisMessage("");
-    setExternalApiWarnings([]);
-    setPipelineResult(null);
-    setPythonAgentResult(null);
-    window.localStorage.removeItem(STORAGE_KEY);
+    prepareAnalysisRun();
     setPipelineStatus("jobPosting", "running");
 
     try {
@@ -1052,9 +1071,9 @@ async function startPythonAgentAnalysis() {
       );
 
       setStatuses(
-        Object.fromEntries(
-          pipelineSteps.map((step) => [step.id, "done"]),
-        ) as PipelineStatuses,
+        createPipelineStatuses((stepId) =>
+          stepId === "finalReport" ? "pending" : "done",
+        ),
       );
       setPythonAgentResult({ sourceKey: analysisSourceKey, ...response });
       savePipelineResult(nextResult);
@@ -1066,8 +1085,8 @@ async function startPythonAgentAnalysis() {
       );
       setAnalysisMessage(
         response.llm_used === false
-          ? `주의: ${response.warnings?.[0] ?? "외부 OpenAI API를 사용하지 않고 fallback 결과를 표시했습니다."}`
-          : (response.message ?? "외부 OpenAI API를 사용해 LangGraph 분석 결과를 생성했습니다."),
+          ? `주의: ${response.warnings?.[0] ?? "외부 OpenAI API를 사용하지 않고 fallback 결과를 표시했습니다."} 검토 후 피드백을 입력하거나 최종 리포트를 승인해 주세요.`
+          : "LangGraph 분석 결과가 생성되었습니다. 검토 후 피드백을 입력하거나 최종 리포트를 승인해 주세요.",
       );
     } catch (pythonError) {
       setPipelineStatus("jobPosting", "failed");
@@ -1102,17 +1121,7 @@ async function startPythonAgentAnalysis() {
     let activeStep: PipelineStepId = "jobPosting";
     const analysisSourceKey = formKey(form);
     const jobPostingRequest = buildJobPostingRequest(form);
-    setStatuses(
-      Object.fromEntries(
-        pipelineSteps.map((step) => [step.id, "pending"]),
-      ) as PipelineStatuses,
-    );
-    setAnalysisError("");
-    setAnalysisMessage("");
-    setExternalApiWarnings([]);
-    setPipelineResult(null);
-    setPythonAgentResult(null);
-    window.localStorage.removeItem(STORAGE_KEY);
+    prepareAnalysisRun();
 
     try {
       activeStep = "jobPosting";
@@ -1592,7 +1601,11 @@ async function startPythonAgentAnalysis() {
                 onClick={startAnalysis}
                 disabled={isRunning}
               >
-                {hasFailed ? "다시 분석 시작" : "분석 시작"}
+                {hasFailed
+                  ? "다시 분석 시작"
+                  : hasAnalysisResult
+                    ? "다시 분석하기"
+                    : "분석 시작"}
               </button>
             ) : (
               <button

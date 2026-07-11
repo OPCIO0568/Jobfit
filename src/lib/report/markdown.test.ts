@@ -120,7 +120,8 @@ describe("renderFinalReportMarkdown", () => {
     expect(markdown).toContain("## 4. 역량 갭 분석");
     expect(markdown).toContain("## 8. 학습 로드맵");
     expect(markdown).toContain("[ ] README");
-    expect(markdown).toContain("취업 성공, 합격 가능성, 평가 결과를 보장하지 않습니다.");
+    expect(markdown).toContain("## 10. AI 분석 한계와 주의사항");
+    expect(markdown).toContain("입력한 공고와 경험을 기준으로 한 참고 자료이며 합격을 보장하지 않습니다.");
   });
 
   it("renders only generated roadmap periods", () => {

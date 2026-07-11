@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
+import { fetchPythonBackend } from "../backend";
 
 export const maxDuration = 300;
 
-const DEFAULT_BACKEND_HOST = "127.0.0.1";
-const DEFAULT_BACKEND_PORT = "8001";
 const BACKEND_TIMEOUT_MS = 300_000;
 
 function backendUnavailableResponse() {
@@ -21,8 +20,6 @@ function backendUnavailableResponse() {
 }
 
 export async function POST(request: Request) {
-  const backendUrl = getBackendUrl();
-
   let body: unknown;
 
   try {
@@ -43,7 +40,7 @@ export async function POST(request: Request) {
   const timeoutId = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${backendUrl}/agent/jobfit`, {
+    const response = await fetchPythonBackend("/agent/jobfit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -72,18 +69,4 @@ export async function POST(request: Request) {
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-function getBackendUrl() {
-  const explicitUrl =
-    process.env.AGENT_BACKEND_URL ??
-    process.env.NEXT_PUBLIC_AGENT_BACKEND_URL;
-
-  if (explicitUrl?.trim()) {
-    return explicitUrl.trim().replace(/\/$/, "");
-  }
-
-  const host = process.env.BACKEND_HOST?.trim() || DEFAULT_BACKEND_HOST;
-  const port = process.env.BACKEND_PORT?.trim() || DEFAULT_BACKEND_PORT;
-  return `http://${host}:${port}`;
 }

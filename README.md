@@ -105,8 +105,9 @@ flowchart LR
     user --> cli[Python CLI Demo]
     user --> docs[FastAPI /docs]
 
-    ui --> proxy[Next.js API Proxy<br/>/api/python-agent/jobfit]
-    proxy --> api[FastAPI Backend<br/>/agent/jobfit]
+    ui --> proxy[Next.js API Proxy<br/>/api/python-agent/jobfit/jobs]
+    proxy --> jobs[FastAPI Background Job API]
+    jobs --> api[LangGraph Agent 실행]
     cli --> state_graph[LangGraph StateGraph]
     docs --> api
 
@@ -128,6 +129,7 @@ flowchart LR
 실행 경로는 크게 3개입니다.
 
 - FastAPI 단독 실행: `POST /agent/jobfit`
+- Cloudflare Tunnel 경유 실행: `POST /agent/jobfit/jobs` 후 상태 조회
 - CLI 실행: `python cli_demo.py --sample --once`
 - Next.js UI 실행: Wizard에서 `Python LangGraph Agent 사용` 옵션 선택
 
@@ -279,6 +281,8 @@ src/
       recommend/roadmap/route.ts
       report/final/route.ts
       python-agent/jobfit/route.ts
+      python-agent/jobfit/jobs/route.ts
+      python-agent/jobfit/jobs/[jobId]/route.ts
 
   components/jobfit/
     InputWizard.tsx
@@ -306,7 +310,8 @@ src/
 | 파일 | 역할 |
 | --- | --- |
 | `src/components/jobfit/InputWizard.tsx` | 입력 Wizard, 분석 실행, Python Agent 호출, 결과 상태 관리 |
-| `src/app/api/python-agent/jobfit/route.ts` | Next.js에서 Python FastAPI backend로 요청을 넘기는 proxy |
+| `src/app/api/python-agent/jobfit/jobs/route.ts` | 분석 작업을 시작하는 Cloudflare 대응 proxy |
+| `src/app/api/python-agent/jobfit/jobs/[jobId]/route.ts` | 분석 완료 여부와 결과를 조회하는 proxy |
 | `src/components/jobfit/ResultDashboard.tsx` | 최종 분석 결과 표시 |
 | `src/components/jobfit/HumanReviewPanel.tsx` | 준비 기간, 수준, 프로젝트 선호, 피드백 기반 로드맵 재생성 |
 | `src/components/jobfit/MarkdownExportButton.tsx` | Markdown 미리보기, 복사, 다운로드 |
@@ -453,7 +458,11 @@ JOBFIT_BACKEND_MOCK=false
 | --- | --- | --- | --- |
 | `GET` | `/health` | `HealthResponse` | 서버 상태, 환경명, 모델명을 반환합니다. |
 | `POST` | `/agent/jobfit` | `AgentResponse` 또는 `ErrorResponse` | LangGraph Agent를 실행합니다. |
+| `POST` | `/agent/jobfit/jobs` | 작업 ID | 장시간 분석을 백그라운드에서 시작합니다. |
+| `GET` | `/agent/jobfit/jobs/{job_id}` | 작업 상태 또는 결과 | `running`, `done`, `failed` 상태를 조회합니다. |
 | `GET` | `/agent/workflow-mermaid` | `text/plain` | LangGraph workflow Mermaid 문자열을 반환합니다. |
+
+Next.js UI는 Cloudflare Tunnel의 장시간 HTTP 요청 제한을 피하기 위해 작업 시작 후 3초 간격으로 결과를 조회하며 최대 5분 동안 기다립니다. `/agent/jobfit`은 FastAPI `/docs`와 로컬 단독 테스트용으로 유지합니다.
 
 ### `/agent/jobfit` 요청 필드
 
@@ -637,8 +646,8 @@ FastAPI 응답은 `response_model=AgentResponse | ErrorResponse`로 구조화되
 2. 브라우저에서 `http://127.0.0.1:3001`에 접속합니다.
 3. 샘플 데이터 버튼으로 IT 인프라, 임베디드, 백엔드 예시를 채울 수 있습니다.
 4. 입력 Wizard의 마지막 단계까지 이동합니다.
-5. 기본 Next.js Mock/OpenAI 경로를 사용하려면 그대로 분석을 실행합니다.
-6. Python backend를 평가 데모로 보여주려면 `Python LangGraph Agent 사용`을 체크합니다.
+5. 기본값인 `Python LangGraph Agent 사용` 상태에서 분석을 실행합니다.
+6. 기존 Next.js OpenAI/Mock 경로를 비교하려면 해당 옵션을 해제합니다.
 7. 분석 결과가 `ResultDashboard`에 표시됩니다.
 8. Python LangGraph 원문 JSON 결과는 접기/펼치기 패널로 확인할 수 있습니다.
 9. Human-in-the-loop 패널에서 준비 기간, 현재 수준, 프로젝트 선호, 피드백을 수정할 수 있습니다.
@@ -646,14 +655,58 @@ FastAPI 응답은 `response_model=AgentResponse | ErrorResponse`로 구조화되
 
 ### Python backend 연결 방식
 
-구현 위치: `src/app/api/python-agent/jobfit/route.ts`
+구현 위치: `src/app/api/python-agent/jobfit/jobs/route.ts`, `src/app/api/python-agent/jobfit/jobs/[jobId]/route.ts`
 
-Next.js route handler는 `.env` 설정을 기준으로 Python backend를 호출합니다.
+Next.js route handler는 `.env` 설정을 기준으로 Python backend의 백그라운드 작업 API를 호출합니다.
 
 1. `AGENT_BACKEND_URL` 값이 있으면 그 주소를 사용합니다.
 2. 비어 있으면 `http://BACKEND_HOST:BACKEND_PORT/agent/jobfit`로 요청합니다.
 
 `localhost` 대신 `127.0.0.1`을 기본값으로 둔 이유는 Windows 환경에서 Node fetch가 IPv6 `::1`로 붙어 uvicorn 연결에 실패하는 경우를 줄이기 위해서입니다.
+
+## Ubuntu 서버 및 Cloudflare Tunnel
+
+서버 내부 포트는 frontend `3001`, backend `8001` 기준입니다. 외부에는 Cloudflare Tunnel로 frontend만 공개해도 됩니다. Next.js 서버가 같은 서버의 FastAPI를 `127.0.0.1:8001`로 호출하기 때문입니다.
+
+```bash
+git clone https://github.com/OPCIO0568/Jobfit.git
+cd Jobfit
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+npm ci
+cp .env.example .env
+```
+
+`.env`에서 최소 다음 값을 설정합니다.
+
+```env
+OPENAI_API_KEY=실제_키
+OPENAI_MODEL=gpt-5.5
+EMBEDDING_MODEL=text-embedding-3-small
+APP_ENV=production
+JOBFIT_BACKEND_MOCK=false
+BACKEND_HOST=127.0.0.1
+BACKEND_PORT=8001
+FRONTEND_PORT=3001
+AGENT_BACKEND_URL=http://127.0.0.1:8001
+```
+
+실행:
+
+```bash
+# 터미널 1
+cd ~/Jobfit/backend
+source ../.venv/bin/activate
+python -m uvicorn main:app --host 127.0.0.1 --port 8001
+
+# 터미널 2
+cd ~/Jobfit
+npm run build
+npm run start -- -p 3001
+```
+
+Cloudflare Tunnel의 origin은 `http://127.0.0.1:3001`로 연결합니다. backend를 별도 도메인으로 공개할 필요는 없습니다. 백그라운드 작업은 현재 프로세스 메모리에만 저장되므로 backend를 여러 worker로 실행하지 말고 단일 worker로 실행해야 합니다.
 
 ## 개인정보 보호
 

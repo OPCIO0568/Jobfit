@@ -2,7 +2,7 @@
 
 이 폴더는 최종 평가 핵심인 Python + LangChain + LangGraph Agent Core입니다.
 
-전체 서비스 소개, 아키텍처, 평가 요구사항 충족표, 발표 흐름은 루트 `README.md`를 우선 확인하세요. 이 문서는 backend만 빠르게 실행하고 점검하기 위한 안내서입니다.
+전체 서비스 소개와 아키텍처는 루트 `README.md`를 우선 확인하세요. 이 문서는 backend만 빠르게 실행하고 점검하기 위한 안내서입니다.
 
 ## 역할
 
@@ -112,7 +112,11 @@ http://127.0.0.1:8001/docs
 | --- | --- | --- |
 | `GET` | `/health` | 서버 상태 확인 |
 | `POST` | `/agent/jobfit` | LangGraph Agent 실행 |
+| `POST` | `/agent/jobfit/jobs` | 백그라운드 분석 작업 시작 |
+| `GET` | `/agent/jobfit/jobs/{job_id}` | 분석 작업 상태 및 결과 조회 |
 | `GET` | `/agent/workflow-mermaid` | workflow Mermaid 문자열 반환 |
+
+Next.js UI와 Cloudflare Tunnel 환경에서는 장시간 연결 대신 `/agent/jobfit/jobs`로 작업을 시작하고 상태를 조회합니다. 작업 저장소는 인메모리이므로 운영 데모는 uvicorn 단일 worker로 실행합니다.
 
 ## CLI 데모
 

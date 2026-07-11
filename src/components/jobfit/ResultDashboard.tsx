@@ -106,7 +106,6 @@ export function ResultDashboard({ result }: ResultDashboardProps) {
       <RoadmapView learningRoadmap={result.learningRoadmap} />
       <PortfolioChecklist
         outputs={result.finalReport.portfolioOutputs}
-        warnings={result.finalReport.risksAndWarnings}
       />
       <MarkdownExportButton markdown={result.markdown} />
     </section>

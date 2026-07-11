@@ -4,6 +4,7 @@ import {
   toSafeJobFitError,
   validationJobFitError,
 } from "@/lib/errors/jobfit-errors";
+import { userFacingCautions } from "@/lib/report/cautions";
 import { renderFinalReportMarkdown } from "@/lib/report/markdown";
 import {
   FinalJobFitReportSchema,
@@ -56,19 +57,8 @@ function portfolioOutputs(
   );
 }
 
-function risksAndWarnings(
-  input: z.infer<typeof FinalReportRequestSchema>,
-) {
-  return uniqueText(
-    [
-      ...input.gapAnalysis.risksAndWarnings,
-      ...input.projectRecommendation.recommendations.flatMap(
-        (project) => project.risks,
-      ),
-      ...allRoadmapSteps(input.learningRoadmap).flatMap((step) => step.risks),
-    ],
-    10,
-  );
+function userFacingRisksAndWarnings() {
+  return userFacingCautions();
 }
 
 function buildFinalReport(
@@ -80,7 +70,7 @@ function buildFinalReport(
       input.projectRecommendation,
       input.learningRoadmap,
     ),
-    risksAndWarnings: risksAndWarnings(input),
+    risksAndWarnings: userFacingRisksAndWarnings(),
     aiReasoning: [
       ...input.jobRequirementAnalysis.aiReasoning,
       ...input.userCapabilityAnalysis.aiReasoning,

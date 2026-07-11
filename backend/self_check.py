@@ -2,8 +2,12 @@ import os
 
 os.environ["JOBFIT_BACKEND_MOCK"] = "true"
 
-from backend.app.agent import get_workflow_mermaid, run_agent
-from backend.app.schemas import ChatRequest
+try:
+    from backend.app.agent import get_workflow_mermaid, run_agent
+    from backend.app.schemas import ChatRequest
+except ModuleNotFoundError:
+    from app.agent import get_workflow_mermaid, run_agent
+    from app.schemas import ChatRequest
 
 
 def main() -> None:

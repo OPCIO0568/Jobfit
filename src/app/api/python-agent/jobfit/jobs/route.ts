@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-
-const DEFAULT_BACKEND_HOST = "127.0.0.1";
-const DEFAULT_BACKEND_PORT = "8001";
+import { fetchPythonBackend } from "../../backend";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -16,7 +14,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const response = await fetch(`${getBackendUrl()}/agent/jobfit/jobs`, {
+    const response = await fetchPythonBackend("/agent/jobfit/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -34,18 +32,4 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
-}
-
-function getBackendUrl() {
-  const explicitUrl =
-    process.env.AGENT_BACKEND_URL ??
-    process.env.NEXT_PUBLIC_AGENT_BACKEND_URL;
-
-  if (explicitUrl?.trim()) {
-    return explicitUrl.trim().replace(/\/$/, "");
-  }
-
-  const host = process.env.BACKEND_HOST?.trim() || DEFAULT_BACKEND_HOST;
-  const port = process.env.BACKEND_PORT?.trim() || DEFAULT_BACKEND_PORT;
-  return `http://${host}:${port}`;
 }

@@ -3,6 +3,7 @@ import type {
   LearningRoadmap,
   ProjectRecommendation,
 } from "@/lib/types/jobfit";
+import { userFacingCautions } from "./cautions";
 
 function renderList(items: readonly string[]) {
   return items.length > 0
@@ -127,17 +128,10 @@ ${renderRoadmaps(report.learningRoadmap)}
 ## 9. 포트폴리오 산출물 체크리스트
 ${renderList(report.portfolioOutputs.map((output) => `[ ] ${output}`))}
 
-## 10. 주의사항
-${renderList(report.risksAndWarnings)}
+## 10. AI 분석 한계와 주의사항
+${renderList(userFacingCautions())}
 
-## 11. AI 분석 한계
-- 이 리포트는 사용자가 제공한 분석 결과를 바탕으로 정리한 참고 자료입니다.
-- 취업 성공, 합격 가능성, 평가 결과를 보장하지 않습니다.
-- 채용공고 원문에 없는 요구사항은 단정하지 않습니다.
-- 사용자가 실제 수행하지 않은 경험을 이미 수행한 것처럼 표현하지 않습니다.
-- 최종 지원 전략은 최신 공고와 본인의 실제 경험을 기준으로 다시 검토해야 합니다.
-
-### AI 판단 근거
+## 11. AI 판단 근거
 ${renderList(report.aiReasoning.map((reasoning) => `${reasoning.item}: ${reasoning.reason}`))}
 `;
 }

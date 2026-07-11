@@ -6,19 +6,34 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
-from backend.app.config import get_settings
-from backend.app.memory import session_store
-from backend.app.middleware import validate_user_message
-from backend.app.schemas import (
-    AgentStructuredResult,
-    ChatRequest,
-    ChatResponse,
-    GapItem,
-    ProjectPlan,
-    RoadmapWeek,
-    get_result_parser,
-)
-from backend.app.tools import JOBFIT_TOOLS
+try:
+    from backend.app.config import get_settings
+    from backend.app.memory import session_store
+    from backend.app.middleware import validate_user_message
+    from backend.app.schemas import (
+        AgentStructuredResult,
+        ChatRequest,
+        ChatResponse,
+        GapItem,
+        ProjectPlan,
+        RoadmapWeek,
+        get_result_parser,
+    )
+    from backend.app.tools import JOBFIT_TOOLS
+except ModuleNotFoundError:
+    from app.config import get_settings
+    from app.memory import session_store
+    from app.middleware import validate_user_message
+    from app.schemas import (
+        AgentStructuredResult,
+        ChatRequest,
+        ChatResponse,
+        GapItem,
+        ProjectPlan,
+        RoadmapWeek,
+        get_result_parser,
+    )
+    from app.tools import JOBFIT_TOOLS
 
 
 Intent = Literal["full", "project", "roadmap", "blocked"]

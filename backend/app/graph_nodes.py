@@ -6,12 +6,14 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 try:
+    from backend.app.cautions import user_facing_cautions
     from backend.app.config import get_settings
     from backend.app.graph_state import GraphState, PartialGraphState
     from backend.app.middleware import log_agent_event, safe_error_response, sanitize_text, validate_jobfit_request
     from backend.app.schemas import GapAnalysis, JobFitRequest, JobPostingAnalysis, ProjectRecommendation, Roadmap, UserProfileAnalysis
     from backend.tools import analyze_job_posting_tool, generate_markdown_report_tool, recommend_project_tool, search_jobfit_rag_tool
 except ModuleNotFoundError:
+    from app.cautions import user_facing_cautions
     from app.config import get_settings
     from app.graph_state import GraphState, PartialGraphState
     from app.middleware import log_agent_event, safe_error_response, sanitize_text, validate_jobfit_request
@@ -373,18 +375,14 @@ def final_report_node(state: GraphState) -> PartialGraphState:
                 "회고: 실패 케이스와 개선 과정",
                 "면접 Q&A: 기술 선택 이유와 트레이드오프",
             ],
-            "cautions": [
-                "AI 분석은 참고용이며 취업 성공을 보장하지 않습니다.",
-                "공고 원문에 없는 요구사항은 단정하지 않았습니다.",
-                "사용자가 실제 수행하지 않은 경험은 보유 역량으로 표현하지 않았습니다.",
-            ],
+            "cautions": user_facing_cautions(),
         }
         llm_result, llm_meta = _llm_structured(
             state,
             ReportSummaryResult,
             _llm_prompt(
                 "최종 리포트 요약",
-                "분석 결과를 발표/포트폴리오용으로 요약하고, 반드시 남겨야 할 산출물과 주의사항을 정리해라.",
+                "분석 결과를 발표/포트폴리오용으로 요약해라. 주의사항은 입력 JSON의 cautions 3개만 유지해라.",
                 report,
             ),
             {
@@ -394,10 +392,9 @@ def final_report_node(state: GraphState) -> PartialGraphState:
             },
             "최종 리포트 요약",
         )
-        warnings = llm_meta.get("llm_warnings", state.get("llm_warnings", []))
         report["summary"] = llm_result.get("summary", report["summary"])
         report["portfolio_checklist"] = llm_result.get("portfolio_checklist", report["portfolio_checklist"])
-        report["cautions"] = _unique([*warnings, *llm_result.get("cautions", report["cautions"])])
+        report["cautions"] = user_facing_cautions()
         markdown = generate_markdown_report_tool.invoke({"final_analysis": report})
         return {"final_report": {"json": report, "markdown": markdown}, "next_action": "done", **llm_meta}
     except Exception as exc:

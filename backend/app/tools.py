@@ -2,14 +2,24 @@ import json
 
 from langchain_core.tools import tool
 
-from backend.app.rag import retrieve_documents
-from backend.tools.expert_prompts import (
-    GAP_ANALYST_PROMPT,
-    PROJECT_MENTOR_PROMPT,
-    RAG_RESEARCHER_PROMPT,
-    REPORT_EDITOR_PROMPT,
-    ROADMAP_COACH_PROMPT,
-)
+try:
+    from backend.app.rag import retrieve_documents
+    from backend.tools.expert_prompts import (
+        GAP_ANALYST_PROMPT,
+        PROJECT_MENTOR_PROMPT,
+        RAG_RESEARCHER_PROMPT,
+        REPORT_EDITOR_PROMPT,
+        ROADMAP_COACH_PROMPT,
+    )
+except ModuleNotFoundError:
+    from app.rag import retrieve_documents
+    from tools.expert_prompts import (
+        GAP_ANALYST_PROMPT,
+        PROJECT_MENTOR_PROMPT,
+        RAG_RESEARCHER_PROMPT,
+        REPORT_EDITOR_PROMPT,
+        ROADMAP_COACH_PROMPT,
+    )
 
 
 def _safe_json_loads(value: str) -> dict:
